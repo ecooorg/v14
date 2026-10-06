@@ -161,7 +161,7 @@ app.use((req, res, next) => {
 
 const BASE_SYSTEM = `You are an analytical engine for a complex decision (Bifurcation Engine). The human keeps the right to decide: do not choose for them and do not substitute their values.
 Do not imitate a person with life experience or feelings. Use what you are strong at: structuring, exposing hidden assumptions and contradictions, generating the space of possible actions, critique from the opposite side, scenarios, judging which unknown matters most, designing cheap tests, calculation on the user's own numbers.
-Do not invent facts, amounts, deadlines, prices, probabilities, percentages, or organization names about the user's situation. Any percentage or probability must come from the user input. Derived numbers only with a formula and in derived_numbers.
+Do not invent facts, amounts, deadlines, prices, probabilities, percentages, or organization names about the user's situation. Any percentage or probability must come from the user input. Derived numbers are allowed only when you put them in derived_numbers with numeric operands from the input and a machine-checkable arithmetic formula. Never put an ungrounded new number in prose.
 "Insufficient data" is better than a confident guess; an acknowledged gap is better than a confident error.
 For every claim, set source: USER_DATA, GENERAL_PATTERN, or GUESS.
 Do not call a scenario a forecast; do not state probabilities.
@@ -173,38 +173,93 @@ Forbidden: best option, recommended, winner, score, ranking, optimal, you should
 Reply only with JSON per the schema, no text outside the schema. Write every human-readable string in the language of the user's input; keep JSON keys and enum values exactly as specified in the schema.`;
 
 function evaluateDerivedFormula(formula: string, operands: number[]): number | null {
-  // Only trust a derived number when the formula contains a machine-verifiable
-  // arithmetic expression. Free-form prose is intentionally not trusted: the
-  // model must not be able to declare an arbitrary value to be "derived".
-  const normalized = formula.replace(/,/g, '.').replace(/×/g, '*').replace(/÷/g, '/');
-  const match = normalized.match(/[0-9.()+\-*/\s]+/g);
-  if (!match) return null;
+  // Accept a small, explicitly arithmetic language only. The model may write
+  // either symbols (5000 - 1800) or plain words (5000 minus 1800). Nothing else
+  // is evaluated, and the numeric literals must match the declared operands.
+  let normalized = formula.toLowerCase()
+    .replace(/,/g, '.')
+    .replace(/×/g, '*').replace(/÷/g, '/')
+    .replace(/\b(?:divided by|divide by|divided into|разделить на|делённый на|деленный на)\b/g, '/')
+    .replace(/\b(?:multiplied by|multiply by|times|умножить на|умноженный на|умноженный)\b/g, '*')
+    .replace(/\b(?:minus|subtract|less|минус|вычесть|вычитаем)\b/g, '-')
+    .replace(/\b(?:plus|add|плюс|прибавить|складываем)\b/g, '+')
+    .replace(/\b(?:equals|equal to|равно|получается|итого)\b/g, '=');
 
-  for (const candidate of match) {
-    const expr = candidate.trim();
+  const eq = normalized.indexOf('=');
+  if (eq >= 0) normalized = normalized.slice(0, eq);
+
+  // Ignore an optional textual prefix such as "calc:" and find arithmetic
+  // candidates. A candidate is accepted only if it contains exactly the
+  // supplied operands in the same order.
+  const candidates = normalized.match(/[0-9.()+*/\-\s]+/g) || [];
+  for (const raw of candidates) {
+    const expr = raw.trim();
     if (!expr || !/[+*/-]/.test(expr)) continue;
-    if (!/^[-+]?\d+(?:\.\d+)?(?:\s*[-+*/]\s*[-+]?\d+(?:\.\d+)?)*(?:\s*[)]\s*)*$/.test(expr)) continue;
-    const numbers = expr.match(/[-+]?\d+(?:\.\d+)?/g)?.map(Number) || [];
-    if (numbers.length !== operands.length || numbers.some((n, i) => n !== operands[i])) continue;
-    try {
-      // The expression is fully restricted to numeric literals and arithmetic
-      // operators by the regex above. No identifiers, calls, or properties can
-      // reach Function().
-      const value = Function(`"use strict"; return (${expr});`)();
-      if (typeof value === 'number' && Number.isFinite(value)) return value;
-    } catch {
-      // Try the next candidate expression.
-    }
+    if (!/^[0-9.()+*/\-\s]+$/.test(expr)) continue;
+
+    const literals = expr.match(/\d+(?:\.\d+)?/g)?.map(Number) || [];
+    if (literals.length !== operands.length || literals.some((n, i) => n !== operands[i])) continue;
+
+    const tokenRe = /\d+(?:\.\d+)?|[()+\-*/]/g;
+    const tokens = expr.match(tokenRe) || [];
+    if (tokens.join('') !== expr.replace(/\s+/g, '')) continue;
+
+    let pos = 0;
+    const peek = () => tokens[pos];
+    const take = () => tokens[pos++];
+    const parseFactor = (): number | null => {
+      const t = peek();
+      if (t === '+' || t === '-') {
+        take();
+        const v = parseFactor();
+        return v === null ? null : (t === '-' ? -v : v);
+      }
+      if (t === '(') {
+        take();
+        const v = parseExpr();
+        if (peek() !== ')') return null;
+        take();
+        return v;
+      }
+      if (/^\d+(?:\.\d+)?$/.test(t || '')) {
+        take();
+        return Number(t);
+      }
+      return null;
+    };
+    const parseTerm = (): number | null => {
+      let value = parseFactor();
+      while (value !== null && (peek() === '*' || peek() === '/')) {
+        const op = take();
+        const rhs = parseFactor();
+        if (rhs === null || (op === '/' && rhs === 0)) return null;
+        value = op === '*' ? value * rhs : value / rhs;
+      }
+      return value;
+    };
+    const parseExpr = (): number | null => {
+      let value = parseTerm();
+      while (value !== null && (peek() === '+' || peek() === '-')) {
+        const op = take();
+        const rhs = parseTerm();
+        if (rhs === null) return null;
+        value = op === '+' ? value + rhs : value - rhs;
+      }
+      return value;
+    };
+
+    const value = parseExpr();
+    if (value !== null && pos === tokens.length && Number.isFinite(value)) return value;
   }
   return null;
 }
 
-function validatedDerivedNumbers(out: string, input: string): string[] {
+function validatedDerivedNumbers(out: string, input: string, extraAllowed: number[] = []): string[] {
   // A model cannot make its own number trustworthy merely by putting it in
-  // derived_numbers. Every operand must already be grounded in user input (or
-  // one of the explicitly supported structural numbers), and the formula must
-  // independently reproduce the claimed value.
-  const allowed = collectAllowedFromInput(input);
+  // derived_numbers. Every operand must be grounded in the supplied input (or
+  // an explicitly allowed structural parameter), and the formula must reproduce
+  // the claimed value independently on the server.
+  const allowed = collectAllowedFromInput(input, extraAllowed);
   try {
     const m = out.match(/\{[\s\S]*\}/);
     const obj = JSON.parse(m ? m[0] : out) as any;
@@ -400,8 +455,9 @@ async function generate(
         // Format problems: ONE retry on the next model, never a walk through the whole chain.
         let problem = '';
         let parsed: unknown;
-        const trustedDerived = validatedDerivedNumbers(r.text, inputForNumbers);
-        const bad = validateNumbers(r.text, inputForNumbers, trustedDerived);
+        const structuralAllowed = stage === 'premortem' ? Array.from({ length: 13 }, (_, i) => i + 12) : [];
+        const trustedDerived = validatedDerivedNumbers(r.text, inputForNumbers, structuralAllowed);
+        const bad = validateNumbers(r.text, inputForNumbers, trustedDerived, structuralAllowed);
         if (bad.length) problem = `numbers outside user input: ${bad.join(', ')}`;
         else { try { parsed = parseJson(r.text); } catch { problem = 'invalid JSON'; } }
         if (problem) {
@@ -609,7 +665,7 @@ STEP 5 - CRITIQUE SYMMETRICALLY
 If the person leans toward an option, attack that one first with the strongest testable objections, then attack the opposite option with the same depth. Separate objections that can be tested from speculation. Do not soften critique to be pleasant, and do not attack on your own initiative when there is nothing yet to attack.
 
 STEP 6 - COMPUTE WHEN NUMBERS EXIST
-If the person gave numbers that make a calculation useful (runway, break-even, expected value, how much it is worth paying to learn something), do the calculation, show the formula in plain words and fill derived_numbers. Do not supply missing inputs yourself and do not state probabilities: ask the person for their own estimate if the calculation needs one.
+If the person gave numbers that make a calculation useful (runway, break-even, expected value, how much it is worth paying to learn something), do the calculation, show the arithmetic formula using digits and +, -, *, /, and fill derived_numbers. Do not supply missing inputs yourself and do not state probabilities: ask the person for their own estimate if the calculation needs one.
 
 HOW MUCH CONTEXT YOU HAVE (set "contextSufficiency")
 Judge by whether you understand what the person is trying to change or protect, not by message length.
@@ -662,7 +718,7 @@ Return JSON only:
   "noNewOptionReason": "Only when a new branch would be forced or fake; otherwise empty",
   "nextStep": "The single most informative next fact, check or experiment and the cheapest way to get it; empty if the reply is a triage stop",
   "factsToCheck": ["Concrete claim about the outside world worth verifying"],
-  "derived_numbers": [{"value": 0, "formula": "plain-words formula", "operands": [0]}],
+  "derived_numbers": [{"value": 0, "formula": "5000 - 1800", "operands": [5000, 1800]}],
   "state": {"coreProblem": "", "userConcern": "", "userReasoningState": "", "facts": [], "assumptions": [], "unknowns": [], "options": [], "hypotheses": [], "expectations": []}
 }
 problemClear, driftDetected and notUnderstoodSignal are service fields (booleans) and are never shown to the person. state.facts holds only what the person said; your guesses go to state.hypotheses. Keep state entries short (one line each, a dozen per list at most). derived_numbers and state may be empty.
@@ -1183,12 +1239,12 @@ app.post('/api/synthesis', async (req, res) => {
 ${input}
 Return JSON: {
   "paragraphs": ["paragraph1","paragraph2","paragraph3","paragraph4","paragraph5"],
-  "derived_numbers": [{"value": <number>,"formula":"calc: operands from input","operands":[<from input>]}],
+  "derived_numbers": [{"value": <number>,"formula":"arithmetic expression using only operands from input","operands":[<from input>]}],
   "open_gaps": [],
   "needs_external_check": []
 }
 Exactly 5 paragraphs of coherent prose, 250–350 words total. Cover, in this order: (1) what is known; (2) what is not known; (3) which facts or test results could change the decision; (4) the next step with the most information for the least cost, and how the path branches on the user's own thresholds; (5) what requires external verification, the main risks, and where this analysis could be wrong or sensitive to wording or to the model.
-Do not choose for the user: one conditional path, not a verdict “choose X”. The user takes and records the decision. Numbers only from input or with a formula. No “best”, “optimal”, or probabilities.`;
+Do not choose for the user: one conditional path, not a verdict “choose X”. The user takes and records the decision. Numbers only from input or in derived_numbers with an arithmetic formula that exactly reproduces the value. No “best”, “optimal”, or probabilities.`;
     const callBudget = { used: 0 };
     let { data, meta } = await generate(prompt, input, 'strong', 'synthesis', 0, requestByokKey, requestPreferredModel, callBudget);
     // S-5: the prompt asks for 5 paragraphs and 250-350 words; check it (tolerance 10 %), one retry, never a hard error
