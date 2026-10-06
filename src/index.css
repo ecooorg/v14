@@ -61,13 +61,21 @@ button{cursor:pointer}.shell{min-height:100vh}.header{min-height:64px;border-bot
 .hdr-secondary{display:contents}
 .hdr-more-btn{display:none}
 .hdr-msg{font-size:12px;color:#8ea2b8}
-@media(max-width:600px){
-  .header-actions{width:100%;justify-content:flex-start}
-  .header-actions .ghost{min-height:44px;min-width:44px;justify-content:center;font-size:13px}
-  .hdr-more-btn{display:inline-flex}
+@media(max-width:900px){
+  /* Keep the primary header on one row and move secondary actions into More.
+     The wider breakpoint also covers mobile/tablet browsers using desktop viewport mode. */
+  .header{padding-left:10px;padding-right:10px}
+  .header-actions{width:100%;justify-content:flex-start;flex-wrap:nowrap;min-width:0;overflow:visible}
+  .header-actions .ghost{min-height:44px;min-width:44px;justify-content:center;font-size:13px;flex:0 1 auto;white-space:nowrap}
+  .hdr-more-btn{display:inline-flex;flex:0 0 auto}
   .hdr-secondary{display:none;width:100%;flex-wrap:wrap;gap:8px}
   .hdr-secondary.open{display:flex}
   .hdr-msg{width:100%}
+}
+
+@media(max-width:600px){
+  .header-actions .ghost{font-size:12px;padding-left:9px;padding-right:9px;gap:5px}
+  .header-actions .ghost svg{flex:0 0 auto}
 }
 
 /* UI-08: every button-like control has a 44 x 44 px tap area on all screen widths */
