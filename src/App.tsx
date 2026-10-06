@@ -402,27 +402,52 @@ export default function App() {
         onToggleExpert={() => setExpertMode((v) => !v)}
       />
       <div className={`layout ${expertMode ? '' : 'friendly-layout'}`}>
-        {expertMode && <aside className="sidebar">
+        {expertMode && <aside className="sidebar method-sidebar">
           <div className="brand">
-            <BrainCircuit size={14} /> Cycle {d.cycleCount}
+            <BrainCircuit size={14} /> Decision method · cycle {d.cycleCount}
           </div>
-          <div className="stages">
-            {STAGES.map((s, i) => (
-              <button
-                key={s.id}
-                className={`stage ${d.step === s.id ? 'current' : ''} ${i < si ? 'done' : ''}`}
-                disabled={i > si}
-                onClick={() => {
-                  if (i <= si) update({ step: s.id });
-                }}
-              >
-                <span>{i + 1}</span>
-                <div>
-                  <b>{s.label}</b>
-                  <small>{s.loop}</small>
+          <div className="method-loop-list">
+            {LOOPS.map((l, i) => {
+              const current = l.steps.includes(d.step);
+              const completed = l.steps.every((step) => stageIndex(step) < si);
+              return (
+                <div key={l.id} className={`method-loop ${current ? 'current' : ''} ${completed ? 'done' : ''}`}>
+                  <span className="method-loop-number">{completed ? '✓' : i + 1}</span>
+                  <div>
+                    <b>{l.label}</b>
+                    <small>{current ? 'You are here' : completed ? 'Completed' : 'Next'}</small>
+                  </div>
                 </div>
-              </button>
-            ))}
+              );
+            })}
+          </div>
+          <div className="method-sidebar-help">
+            <b>How to use this</b>
+            <span>Follow the highlighted step, answer the question on screen, then continue.</span>
+          </div>
+          <div className="method-detail-stages">
+            <div className="method-detail-title">Detailed steps</div>
+            {STAGES.filter((s) => s.id !== 'TRIAGE').map((s, i) => {
+              const stageNo = i + 1;
+              const stageNoCurrent = d.step === s.id;
+              const stageDone = stageIndex(s.id) < si;
+              return (
+                <button
+                  key={s.id}
+                  className={`stage ${stageNoCurrent ? 'current' : ''} ${stageDone ? 'done' : ''}`}
+                  disabled={stageIndex(s.id) > si}
+                  onClick={() => {
+                    if (stageIndex(s.id) <= si) update({ step: s.id });
+                  }}
+                >
+                  <span>{stageDone ? '✓' : stageNo}</span>
+                  <div>
+                    <b>{s.label}</b>
+                    <small>{s.loop}</small>
+                  </div>
+                </button>
+              );
+            })}
           </div>
           <div className="sidebar-note">
             {en.formula}
@@ -431,36 +456,11 @@ export default function App() {
             Human decision:{' '}
             {d.decision ? 'recorded' : 'not yet'}
           </div>
-          {/* Loop stepper */}
-          <div style={{ marginTop: 12, padding: '0 7px' }}>
-            {LOOPS.map((l) => (
-              <div
-                key={l.id}
-                style={{
-                  fontSize: 11,
-                  color: l.steps.includes(d.step) ? '#dcecff' : '#53687d',
-                  marginBottom: 4,
-                }}
-              >
-                {l.id}. {l.label}
-              </div>
-            ))}
-          </div>
         </aside>}
 
         <main className="content">
           {expertMode && (
-            <div className="topline">
-              <div>
-                <div className="stagebar"><span>Loop · {stageMeta.loop} · {stageMeta.article}</span></div>
-                <h1 style={{ margin: '8px 0 4px', fontSize: 22 }}>{stageMeta.label}</h1>
-                <div style={{ fontSize: 12, color: '#7f93aa' }}>
-                  <b>{en.human}:</b> {stageMeta.human}<br />
-                  <b>{en.model}:</b> {stageMeta.model}
-                </div>
-              </div>
-              {busy && <div className="alert"><div className="spinner" /> Requesting model…</div>}
-            </div>
+            <MethodGuide step={d.step} stageMeta={stageMeta} busy={busy} />
           )}
 
           {error && (
@@ -520,6 +520,50 @@ export default function App() {
   );
 }
 
+function MethodGuide({ step, stageMeta, busy }: { step: Step; stageMeta: typeof STAGES[number]; busy: boolean }) {
+  const currentLoopIndex = LOOPS.findIndex((l) => l.steps.includes(step));
+  const currentLoop = currentLoopIndex >= 0 ? LOOPS[currentLoopIndex] : LOOPS[0];
+  const loopDescriptions = [
+    'Understand the situation and find the unknowns that could change the decision.',
+    'Look beyond the obvious choices and add realistic alternatives.',
+    'Stress-test the options and expose the assumptions that could make them fail.',
+    'Turn the important assumptions into checks, thresholds, and a practical plan.',
+    'Record what happened and learn from the difference between expectation and reality.',
+  ];
+  return (
+    <div className="method-guide">
+      <div className="method-guide-head">
+        <div>
+          <div className="eyebrow">DEEP DECISION</div>
+          <h1>Work through the decision step by step</h1>
+          <p>Follow the highlighted stage. Answer the question on screen, or choose “I don't know” when you don't have the information yet.</p>
+        </div>
+        {busy && <div className="method-busy"><div className="spinner" /> Working…</div>}
+      </div>
+      <div className="method-stepper" aria-label="Decision progress">
+        {LOOPS.map((loop, i) => {
+          const active = i === currentLoopIndex;
+          const done = i < currentLoopIndex;
+          return (
+            <div key={loop.id} className={`method-step ${active ? 'active' : ''} ${done ? 'done' : ''}`}>
+              <span>{done ? '✓' : i + 1}</span>
+              <b>{loop.label}</b>
+            </div>
+          );
+        })}
+      </div>
+      <div className="method-current">
+        <div>
+          <span className="method-current-label">CURRENT STEP</span>
+          <strong>{stageMeta.label}</strong>
+          <span>{currentLoop.label} · {loopDescriptions[currentLoopIndex] || loopDescriptions[0]}</span>
+        </div>
+        <div className="method-current-count">Stage {Math.max(1, stageIndex(step))} of {STAGES.length - 1}</div>
+      </div>
+    </div>
+  );
+}
+
 // --- Header ---
 function Header(props: {
   onNew: () => void;
@@ -546,7 +590,7 @@ function Header(props: {
         {/* Primary actions: always visible, always labelled */}
         {props.onToggleExpert && (
           <button className="ghost" onClick={props.onToggleExpert}>
-            <SlidersHorizontal size={14} /> {props.expertMode ? 'Normal mode' : 'Method'}
+            <SlidersHorizontal size={14} /> {props.expertMode ? 'Simple mode' : 'Method'}
           </button>
         )}
         <button className="ghost" onClick={props.onNew}><Plus size={14} /> New</button>
