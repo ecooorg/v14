@@ -269,15 +269,24 @@ function validatedDerivedNumbers(out: string, input: string, extraAllowed: numbe
     for (const d of list) {
       if (!d || typeof d.value !== 'number' || !Number.isFinite(d.value) ||
           typeof d.formula !== 'string' || !d.formula.trim() || !Array.isArray(d.operands)) continue;
+      // Formula operands may include a tiny set of mathematical constants
+      // that are not user facts. Percentage calculations commonly need * 100.
+      // Every other operand must still come from the input or an explicitly
+      // allowed structural parameter.
+      const FORMULA_CONSTANTS = new Set([0, 1, 100]);
       const operandsOk = d.operands.every((o: unknown) => {
         if (typeof o !== 'number' || !Number.isFinite(o)) return false;
+        if (FORMULA_CONSTANTS.has(o)) return true;
         const n = String(o);
         return allowed.has(n) || allowed.has(n.replace('.', ','));
       });
       if (!operandsOk) continue;
       const operands = d.operands as number[];
       const calculated = evaluateDerivedFormula(d.formula, operands);
-      if (calculated === null || Math.abs(calculated - d.value) > Math.max(1e-9, Math.abs(d.value) * 1e-9)) continue;
+      // Derived values may be rounded for display (e.g. 177.78%), but only
+      // after the server independently reproduces them from grounded operands.
+      const tolerance = Math.max(1e-9, Math.abs(d.value) * 1e-6, 0.005);
+      if (calculated === null || Math.abs(calculated - d.value) > tolerance) continue;
       trusted.push(String(d.value));
     }
     return trusted;
