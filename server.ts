@@ -161,7 +161,7 @@ app.use((req, res, next) => {
 
 const BASE_SYSTEM = `You are an analytical engine for a complex decision (Bifurcation Engine). The human keeps the right to decide: do not choose for them and do not substitute their values.
 Do not imitate a person with life experience or feelings. Use what you are strong at: structuring, exposing hidden assumptions and contradictions, generating the space of possible actions, critique from the opposite side, scenarios, judging which unknown matters most, designing cheap tests, calculation on the user's own numbers.
-Do not invent facts, amounts, deadlines, prices, probabilities, percentages, or organization names about the user's situation. Any percentage or probability must come from the user input. Derived numbers are allowed only when you put them in derived_numbers with numeric operands from the input and a machine-checkable arithmetic formula. Never put an ungrounded new number in prose.
+Do not invent facts, amounts, deadlines, prices, probabilities, percentages, or organization names about the user's situation. Any percentage or probability must come from the user input. If the user's numeric statements conflict with each other or with arithmetic, do not silently correct them: point out the contradiction and ask which value is correct. If a calculation needs a missing numeric input, do not guess it: say what is missing and ask for that input. If a numerical claim cannot be supported safely, answer without that new number rather than failing the response. Derived numbers are allowed only when you put them in derived_numbers with numeric operands from the input and a machine-checkable arithmetic formula. Never put an ungrounded new number in prose.
 "Insufficient data" is better than a confident guess; an acknowledged gap is better than a confident error.
 For every claim, set source: USER_DATA, GENERAL_PATTERN, or GUESS.
 Do not call a scenario a forecast; do not state probabilities.
@@ -332,7 +332,7 @@ class GeminiRateLimitError extends Error {
 }
 
 class GeminiFormatError extends Error {
-  code = 'AI_FORMAT';
+  code = 'GEMINI_FORMAT';
   status = 502;
   constructor(message = 'The AI returned an unusable answer twice. Please try again.') {
     super(message);
@@ -641,6 +641,12 @@ function conversationGainAudit(out: any, contextSufficiency: string) {
   };
 }
 
+// A quality/number guard failure is an internal model-quality problem, not a broken conversation.
+// Never expose it as a red 500 banner: return a short, safe clarification request instead.
+function safeConversationFallback(): string {
+  return 'Я не могу безопасно завершить этот ответ по текущим данным. Проверьте исходные цифры или уточните недостающие условия, и я продолжу.';
+}
+
 // --- POST /api/conversation ---
 // Normal mode: one concrete, user-facing conversation loop. The method stays internal.
 function buildConversationPrompt(input: string): string {
@@ -852,6 +858,24 @@ The reply must contain at least one of: a reframed question, a hidden assumption
       }),
     }, meta);
   } catch (e: any) {
+    if (e?.code === 'GEMINI_FORMAT') {
+      // Number/format guards must never make a normal conversation look broken.
+      // The technical reason remains in server logs; the person gets a usable next step.
+      console.warn(JSON.stringify({ type: 'conversation_safe_fallback', reason: e?.message || 'format guard' }));
+      return ok(res, {
+        reply: safeConversationFallback(),
+        question: '',
+        contextSufficiency: 'LOW',
+        triage: 'PROCEED',
+        gain: [],
+        options: [],
+        newOptions: [],
+        newOptionTypes: [],
+        nextStep: 'Проверьте исходные цифры или уточните недостающие условия.',
+        factsToCheck: [],
+        state: normalizeState((req.body || {}).state),
+      }, { model: 'safe-fallback', fallback: true, durationMs: 0, stage: 'conversation-safe-fallback', calls: 0, lightFallback: false, promptChars: 0 });
+    }
     if (e?.code === 'GEMINI_QUOTA') return fail(res, 429, e.message, e.code);
     if (e?.code === 'GEMINI_RATE_LIMIT') return fail(res, 429, e.message, e.code);
     fail(res, 500, e.message || 'conversation error');
