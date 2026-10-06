@@ -118,6 +118,24 @@ function isGenericWordNumberContext(text: string, value: string): boolean {
   return false;
 }
 
+function inputHasPercentValue(input: string, value: string): boolean {
+  const n = value.replace(',', '.');
+  const re = new RegExp(`(?<![\\p{L}_])[-+]?${n.replace('.', '[.,]')}%`, 'u');
+  return re.test(input);
+}
+
+function isPercentageContext(out: string, start: number, end: number): boolean {
+  const before = out.slice(Math.max(0, start - 48), start);
+  const after = out.slice(end, Math.min(out.length, end + 48));
+  return /%|percent(?:age)?|процент(?:а|ов)?/iu.test(`${before}${after}`);
+}
+
+function isDerivedNumbersValueContext(out: string, start: number, end: number): boolean {
+  const before = out.slice(Math.max(0, start - 180), start);
+  const after = out.slice(end, Math.min(out.length, end + 120));
+  return /\"derived_numbers\"\s*:\s*\[[\s\S]*$/i.test(before) && /^(?:[\s\S]*?\})?\s*(?:,|\]|$)/.test(after);
+}
+
 function isGenericNumericContext(text: string, start: number, end: number): boolean {
   const before = text.slice(Math.max(0, start - 3), start);
   const after = text.slice(end, Math.min(text.length, end + 32));
@@ -138,10 +156,17 @@ export function validateNumbers(out: string, input: string, derived: string[] = 
   const bad: string[] = [];
   for (const m of out.matchAll(/(?<![\p{L}_])[-+]?\d+(?:[.,]\d+)?%?/gu)) {
     const n = m[0].replace(',', '.');
+    const start = m.index ?? 0;
+    const end = start + m[0].length;
     if (allowed.has(n)) continue;
     if (n.endsWith('%') && allowed.has(n.slice(0, -1))) continue;
+    // A percentage supplied by the user may be echoed as a bare numeric value
+    // in derived_numbers (e.g. {value: 50}) or while explicitly discussing
+    // that percentage. This is still the user's number, not a new fact.
+    if (!n.endsWith('%') && inputHasPercentValue(input, n)
+        && (isPercentageContext(out, start, end) || isDerivedNumbersValueContext(out, start, end))) continue;
     if (idLike.has(n)) continue;
-    if (isGenericNumericContext(out, m.index ?? 0, (m.index ?? 0) + m[0].length)) continue;
+    if (isGenericNumericContext(out, start, end)) continue;
     bad.push(n);
   }
 
