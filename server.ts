@@ -172,10 +172,38 @@ The options the user lists are what they currently see, not the whole space of p
 Forbidden: best option, recommended, winner, score, ranking, optimal, you should choose. You may name the most informative next step, but never choose between options or values.
 Reply only with JSON per the schema, no text outside the schema. Write every human-readable string in the language of the user's input; keep JSON keys and enum values exactly as specified in the schema.`;
 
+function evaluateDerivedFormula(formula: string, operands: number[]): number | null {
+  // Only trust a derived number when the formula contains a machine-verifiable
+  // arithmetic expression. Free-form prose is intentionally not trusted: the
+  // model must not be able to declare an arbitrary value to be "derived".
+  const normalized = formula.replace(/,/g, '.').replace(/×/g, '*').replace(/÷/g, '/');
+  const match = normalized.match(/[0-9.()+\-*/\s]+/g);
+  if (!match) return null;
+
+  for (const candidate of match) {
+    const expr = candidate.trim();
+    if (!expr || !/[+*/-]/.test(expr)) continue;
+    if (!/^[-+]?\d+(?:\.\d+)?(?:\s*[-+*/]\s*[-+]?\d+(?:\.\d+)?)*(?:\s*[)]\s*)*$/.test(expr)) continue;
+    const numbers = expr.match(/[-+]?\d+(?:\.\d+)?/g)?.map(Number) || [];
+    if (numbers.length !== operands.length || numbers.some((n, i) => n !== operands[i])) continue;
+    try {
+      // The expression is fully restricted to numeric literals and arithmetic
+      // operators by the regex above. No identifiers, calls, or properties can
+      // reach Function().
+      const value = Function(`"use strict"; return (${expr});`)();
+      if (typeof value === 'number' && Number.isFinite(value)) return value;
+    } catch {
+      // Try the next candidate expression.
+    }
+  }
+  return null;
+}
+
 function validatedDerivedNumbers(out: string, input: string): string[] {
   // A model cannot make its own number trustworthy merely by putting it in
   // derived_numbers. Every operand must already be grounded in user input (or
-  // one of the explicitly supported structural numbers).
+  // one of the explicitly supported structural numbers), and the formula must
+  // independently reproduce the claimed value.
   const allowed = collectAllowedFromInput(input);
   try {
     const m = out.match(/\{[\s\S]*\}/);
@@ -192,6 +220,9 @@ function validatedDerivedNumbers(out: string, input: string): string[] {
         return allowed.has(n) || allowed.has(n.replace('.', ','));
       });
       if (!operandsOk) continue;
+      const operands = d.operands as number[];
+      const calculated = evaluateDerivedFormula(d.formula, operands);
+      if (calculated === null || Math.abs(calculated - d.value) > Math.max(1e-9, Math.abs(d.value) * 1e-9)) continue;
       trusted.push(String(d.value));
     }
     return trusted;
