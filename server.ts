@@ -10,6 +10,7 @@ import dotenv from 'dotenv';
 import { GoogleGenAI } from '@google/genai';
 import { createServer as createViteServer } from 'vite';
 import { SUPPORT_CONTACTS, hasDistressMarker } from './src/config/support.ts';
+import { collectAllowedFromInput, validateNumbers } from './src/core/numberValidator.ts';
 
 import { APP_VERSION } from './src/config.ts';
 import { V17_LAYER_PROMPT, buildVisibleReply, firstQuestionOnly, mergeModelState, normalizeState, readInternalFlags, scrubInternalLabels } from './server/reasoningState.ts';
@@ -171,87 +172,32 @@ The options the user lists are what they currently see, not the whole space of p
 Forbidden: best option, recommended, winner, score, ranking, optimal, you should choose. You may name the most informative next step, but never choose between options or values.
 Reply only with JSON per the schema, no text outside the schema. Write every human-readable string in the language of the user's input; keep JSON keys and enum values exactly as specified in the schema.`;
 
-function extractNums(s: string): string[] {
-  return [...s.matchAll(/(?<![\p{L}_])[-+]?\d+(?:[.,]\d+)?%/gu)].map((m) =>
-    m[0].replace(',', '.')
-  );
-}
-
-/** Word-numerals → digit strings for allowance matching */
-const WORD_NUM: Record<string, string> = {
-  zero: '0', one: '1', two: '2', three: '3', four: '4',
-  five: '5', six: '6', seven: '7', eight: '8', nine: '9', ten: '10',
-  eleven: '11', twelve: '12', thirteen: '13', fourteen: '14',
-  fifteen: '15', sixteen: '16', seventeen: '17', eighteen: '18',
-  nineteen: '19', twenty: '20', thirty: '30', forty: '40', fifty: '50',
-  sixty: '60', seventy: '70', eighty: '80', ninety: '90',
-  hundred: '100',
-};
-
-function expandWordNumerals(s: string): string[] {
-  const lower = s.toLowerCase();
-  const out: string[] = [];
-  for (const [w, d] of Object.entries(WORD_NUM)) {
-    if (lower.includes(w)) out.push(d);
-  }
-  // simple "X of Y" patterns already covered by digit extract
-  return out;
-}
-
-function collectDerivedFromJson(out: string): string[] {
-  const allowed: string[] = [];
+function validatedDerivedNumbers(out: string, input: string): string[] {
+  // A model cannot make its own number trustworthy merely by putting it in
+  // derived_numbers. Every operand must already be grounded in user input (or
+  // one of the explicitly supported structural numbers).
+  const allowed = collectAllowedFromInput(input);
   try {
     const m = out.match(/\{[\s\S]*\}/);
     const obj = JSON.parse(m ? m[0] : out) as any;
     const list = obj?.derived_numbers || obj?.derivedNumbers || [];
+    if (!Array.isArray(list)) return [];
+    const trusted: string[] = [];
     for (const d of list) {
-      if (d && typeof d.value === 'number') {
-        allowed.push(String(d.value));
-        allowed.push(String(d.value).replace('.', ','));
-        if (Array.isArray(d.operands)) {
-          for (const o of d.operands) {
-            if (typeof o === 'number') {
-              allowed.push(String(o));
-              allowed.push(String(o).replace('.', ','));
-            }
-          }
-        }
-      }
+      if (!d || typeof d.value !== 'number' || !Number.isFinite(d.value) ||
+          typeof d.formula !== 'string' || !d.formula.trim() || !Array.isArray(d.operands)) continue;
+      const operandsOk = d.operands.every((o: unknown) => {
+        if (typeof o !== 'number' || !Number.isFinite(o)) return false;
+        const n = String(o);
+        return allowed.has(n) || allowed.has(n.replace('.', ','));
+      });
+      if (!operandsOk) continue;
+      trusted.push(String(d.value));
     }
-    // schema scaffolding numbers that appear in prompts (not user claims)
-    if (typeof obj?.horizonMonths === 'number') {
-      allowed.push(String(obj.horizonMonths));
-    }
-  } catch { /* ignore */ }
-  return allowed;
-}
-
-function validateNumbers(out: string, input: string): string[] {
-  const allowed = new Set([
-    ...extractNums(input),
-    ...expandWordNumerals(input),
-    ...collectDerivedFromJson(out),
-  ]);
-  // Method parameters (pre-mortem horizon 12–24) are always allowed
-  for (let h = 12; h <= 24; h++) allowed.add(String(h));
-  // Common structural counts and short deadlines used in article cases
-  // («14 days», «4 shifts», «30 subscriptions», ids like obj-1)
-  for (let i = 0; i <= 31; i++) allowed.add(String(i));
-  for (const n of [45, 60, 90, 100, 120, 150, 180, 200, 365]) allowed.add(String(n));
-
-  // Numbers that only appear inside identifier-like tokens (obj-1, hyp_2, n3) are not claims
-  const idLike = new Set<string>();
-  for (const m of out.matchAll(/\b(?:obj|hyp|n|exp|c|id)[-_]?(\d+)\b/gi)) {
-    idLike.add(m[1]);
+    return trusted;
+  } catch {
+    return [];
   }
-
-  return extractNums(out).filter((n) => {
-    if (allowed.has(n)) return false;
-    if (n.endsWith('%') && allowed.has(n.slice(0, -1))) return false;
-    const bare = n.replace('%', '');
-    if (idLike.has(bare)) return false;
-    return true;
-  });
 }
 
 function parseJson(t: string): unknown {
@@ -423,7 +369,8 @@ async function generate(
         // Format problems: ONE retry on the next model, never a walk through the whole chain.
         let problem = '';
         let parsed: unknown;
-        const bad = validateNumbers(r.text, inputForNumbers);
+        const trustedDerived = validatedDerivedNumbers(r.text, inputForNumbers);
+        const bad = validateNumbers(r.text, inputForNumbers, trustedDerived);
         if (bad.length) problem = `numbers outside user input: ${bad.join(', ')}`;
         else { try { parsed = parseJson(r.text); } catch { problem = 'invalid JSON'; } }
         if (problem) {
