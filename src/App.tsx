@@ -530,13 +530,21 @@ function MethodGuide({ step, stageMeta, busy }: { step: Step; stageMeta: typeof 
     'Turn the important assumptions into checks, thresholds, and a practical plan.',
     'Record what happened and learn from the difference between expectation and reality.',
   ];
+  const loopActions = [
+    'Your task: explain the situation and answer only the questions that could change the decision. “I don't know” is a valid answer.',
+    'Your task: review the possible paths. You are not choosing yet.',
+    'Your task: look at the strongest reasons the paths could fail.',
+    'Your task: decide what to do, or define the cheapest useful check before committing.',
+    'Your task: later, compare what you expected with what actually happened.',
+  ];
+  const stageNumber = Math.max(1, currentLoopIndex + 1);
   return (
     <div className="method-guide">
       <div className="method-guide-head">
         <div>
           <div className="eyebrow">DEEP DECISION</div>
-          <h1>Work through the decision step by step</h1>
-          <p>Follow the highlighted stage. Answer the question on screen, or choose “I don't know” when you don't have the information yet.</p>
+          <h1>Work through your decision step by step</h1>
+          <p>You do not need to know the method. The app will guide you. At each stage, just do the small task shown below.</p>
         </div>
         {busy && <div className="method-busy"><div className="spinner" /> Working…</div>}
       </div>
@@ -554,11 +562,12 @@ function MethodGuide({ step, stageMeta, busy }: { step: Step; stageMeta: typeof 
       </div>
       <div className="method-current">
         <div>
-          <span className="method-current-label">CURRENT STEP</span>
+          <span className="method-current-label">YOU ARE HERE · STEP {stageNumber} OF {LOOPS.length}</span>
           <strong>{stageMeta.label}</strong>
-          <span>{currentLoop.label} · {loopDescriptions[currentLoopIndex] || loopDescriptions[0]}</span>
+          <span>{loopDescriptions[currentLoopIndex] || loopDescriptions[0]}</span>
+          <span className="method-current-action">{loopActions[currentLoopIndex] || loopActions[0]}</span>
         </div>
-        <div className="method-current-count">Stage {Math.max(1, stageIndex(step))} of {STAGES.length - 1}</div>
+        <div className="method-current-count">{currentLoopIndex + 1} / {LOOPS.length}</div>
       </div>
     </div>
   );
@@ -630,8 +639,8 @@ function Header(props: {
 
 function AssistantMessage({ children }: { children: React.ReactNode }) {
   return (
-    <div className="panel" style={{ maxWidth: 820, margin: '0 auto 16px', lineHeight: 1.7 }}>
-      <div className="eyebrow">Assistant</div>
+    <div className="panel expert-result-card" style={{ maxWidth: 820, margin: '0 auto 16px', lineHeight: 1.7 }}>
+      <div className="eyebrow">WHAT WE FOUND</div>
       <div style={{ marginTop: 8 }}>{children}</div>
     </div>
   );
@@ -974,6 +983,30 @@ function ConversationScreen({
   );
 }
 
+function ExpertStageIntro({
+  step,
+  title,
+  task,
+  next,
+}: {
+  step: string;
+  title: string;
+  task: string;
+  next: string;
+}) {
+  return (
+    <div className="expert-stage-intro">
+      <div className="expert-stage-intro-top">
+        <span className="expert-stage-kicker">YOUR TASK · {step}</span>
+        <span className="expert-stage-rule">You stay in control</span>
+      </div>
+      <h2>{title}</h2>
+      <p>{task}</p>
+      <div className="expert-stage-next"><b>What happens next:</b> {next}</div>
+    </div>
+  );
+}
+
 // --- UNDERSTAND ---
 function UnderstandScreen({
   d,
@@ -1055,8 +1088,36 @@ function UnderstandScreen({
     });
   };
 
+  const conversation: any[] = Array.isArray(d.modelSuggestions?.conversation) ? d.modelSuggestions!.conversation as any[] : [];
+  const firstAssistantReply = [...conversation].reverse().find((m: any) => m.role === 'assistant');
+
   return (
     <div className="friendly-flow">
+      <ExpertStageIntro
+        step="1 · UNDERSTAND"
+        title="First, make the situation clear"
+        task="You do not need to solve the decision yet. Answer only the questions whose answers could change what you do. If you do not know, say so."
+        next="once the important gaps are clear, we will widen the set of possible paths."
+      />
+      <div className="method-transition-card">
+        <div className="eyebrow">YOUR STORY · RECEIVED</div>
+        <p className="method-transition-title">Good. Your situation is now part of the decision analysis.</p>
+        <p className="method-transition-copy">You do not need to choose anything yet. First we will separate what is known from what is assumed and find the unknowns that could change the decision.</p>
+        {d.brief.decision && (
+          <details className="method-story-details">
+            <summary>Show the story you entered</summary>
+            <div dir="auto">{d.brief.decision}</div>
+          </details>
+        )}
+      </div>
+
+      {firstAssistantReply && (
+        <AssistantMessage>
+          <p className="method-response-label">FIRST RESPONSE</p>
+          <div className="conversation-message-text" translate="no" dir="auto">{firstAssistantReply.content}</div>
+        </AssistantMessage>
+      )}
+
       {preview && (
         <AssistantMessage>
           <p style={{ marginTop: 0 }}>{preview.summary}</p>
@@ -1067,7 +1128,7 @@ function UnderstandScreen({
         </AssistantMessage>
       )}
 
-      {!d.radar && <AssistantMessage><p style={{ margin: 0 }}>{busy ? 'I am looking at the situation now. I will first separate what is known from what is assumed and point out what could change the picture.' : 'I am ready to look at the situation.'}</p></AssistantMessage>}
+      {!d.radar && <AssistantMessage><p style={{ margin: 0 }}>{busy ? 'I am working through the first step now. When it is ready, you will see what is known, what is assumed, and the first question that could change the decision.' : 'The first step is ready. We will start by identifying what could change the picture.'}</p></AssistantMessage>}
 
       {d.radar && (
         <>
@@ -1107,8 +1168,14 @@ function ExpandScreen({ d, update, busy }: { d: Decision; update: (p: Partial<De
   const visible = d.options.filter((o) => o.realistic !== 'NO');
   return (
     <div className="friendly-flow">
+      <ExpertStageIntro
+        step="2 · EXPAND"
+        title="Look beyond the obvious choices"
+        task="The engine widens the decision. Your job is to see which paths are realistic for you — including smaller, reversible, or information-first moves."
+        next="you can stress-test the paths, or stop here if you already have enough to make your own decision."
+      />
       <AssistantMessage>
-        <p style={{ marginTop: 0 }}>We have widened the decision beyond the original framing. I am not choosing between these paths for you.</p>
+        <p style={{ marginTop: 0 }}>We have widened the decision beyond the original framing. These are possibilities to consider — not recommendations.</p>
         <p>Here are the main possibilities to keep on the table:</p>
         <ol style={{ paddingLeft: 22, marginBottom: 18 }}>
           {visible.map((o) => <li key={o.id} style={{ marginBottom: 10 }}><b>{o.title}</b>{o.description ? ` — ${o.description}` : ''}</li>)}
@@ -1159,8 +1226,14 @@ function AttackScreen({
 
   return (
     <div className="friendly-flow">
+      <ExpertStageIntro
+        step="3 · ATTACK"
+        title="Try to break the options before they break you"
+        task="The engine looks for strong reasons each path could fail. You do not need to defend or approve the critique. Look for anything that deserves a real check."
+        next="after the weak points are visible, you can make your decision or choose something worth testing first."
+      />
       <AssistantMessage>
-        <p style={{ marginTop: 0 }}>Before you commit, it is useful to look for reasons each path could fail. I will do that symmetrically, without picking a winner.</p>
+        <p style={{ marginTop: 0 }}>We will stress-test the paths symmetrically. This is not a vote for or against any option.</p>
         {!tested && <button className="primary" disabled={busy || !first || !second} onClick={testRisks}>Show me the weak points</button>}
       </AssistantMessage>
 
@@ -1223,6 +1296,12 @@ function TestScreen({
 
   return (
     <div>
+      <ExpertStageIntro
+        step="4 · VERIFY"
+        title="Turn an important uncertainty into a check"
+        task="Choose a critical hypothesis and define a cheap, concrete way to learn whether it is true. Fix the metric, deadline, thresholds, and your own forecast before the result is known."
+        next="once the check is locked, you can run it and later record what actually happened."
+      />
       <div className="panel">
         <h2>Experiment drafts</h2>
         <p style={{ fontSize: 12, color: '#7f93aa' }}>
@@ -1850,6 +1929,12 @@ function DecideScreen({
 
   return (
     <div className="friendly-flow">
+      <ExpertStageIntro
+        step="4 · VERIFY"
+        title="Make your own decision"
+        task="The structured challenge is complete. This is your decision, not the model's. You can choose, postpone, or decide to gather one more fact first."
+        next="your decision and its grounds will be carried into the final picture."
+      />
       <AssistantMessage>
         <p style={{ marginTop: 0 }}>You have seen the main possibilities and the main ways they could fail. I will not choose for you.</p>
         <p>Tell me, in plain language, what you are going to do now. It is also completely fine to postpone the decision or decide to gather one more fact first.</p>
@@ -1892,6 +1977,12 @@ function SynthesisScreen({
 }) {
   return (
     <div className="panel">
+      <ExpertStageIntro
+        step="4 · VERIFY"
+        title="See the decision in one place"
+        task="This is a summary of what the process found: what is known, what remains uncertain, what could change the decision, and what deserves external checking."
+        next="after reviewing it, continue to Learn so the outcome can be recorded and used in a future cycle."
+      />
       <h2>Decision map</h2>
       <button
         className="primary"
@@ -2018,6 +2109,12 @@ function LearnScreen({
 
   return (
     <div className="panel">
+      <ExpertStageIntro
+        step="5 · LEARN"
+        title="Record what happened"
+        task="Later, compare your forecast with the real result, record what changed your mind, and identify whether the gap came from data, assumptions, reasoning, execution, or chance."
+        next="you can start a new cycle later with the lessons from this one."
+      />
       <h2>Journal and learning</h2>
       <button className="ghost" onClick={addEntry}>
         <Plus size={14} /> Journal entry
