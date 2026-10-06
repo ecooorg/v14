@@ -1,0 +1,297 @@
+[
+  {
+    "id": "climate-move",
+    "first": "Я думаю переехать в другую страну из-за климата. Здесь зимой мне очень тяжело. Стоит ли?",
+    "second": null,
+    "previousAssistant": null,
+    "model": {
+      "reply": "**Ключевое:** зимняя тяжесть (USER FACT) — это одно, а переезд — один из способов. Что именно тяжело: свет, холод или настроение? Можно сначала проверить зиму в тёплом месте на 3 недели.",
+      "question": "В какие месяцы тяжелее всего?",
+      "contextSufficiency": "MEDIUM",
+      "triage": "PROCEED",
+      "problemClear": true,
+      "driftDetected": false,
+      "notUnderstoodSignal": false,
+      "gain": [],
+      "newOptions": [],
+      "state": {
+        "coreProblem": "Решение",
+        "facts": [],
+        "hypotheses": []
+      }
+    },
+    "expect": {
+      "maxQuestions": 1,
+      "calls": 2,
+      "noMarkup": true,
+      "noLabels": true,
+      "factsAbsent": []
+    }
+  },
+  {
+    "id": "repair-or-car",
+    "first": "У меня есть деньги либо на ремонт дома, либо на машину. Не могу выбрать, что важнее.",
+    "second": null,
+    "previousAssistant": null,
+    "model": {
+      "reply": "## Развилка\n- Что ломается без ремонта?\n- Что теряется без машины?\nОтвет зависит от того, что необратимее.",
+      "question": "Что из двух нельзя отложить на полгода?",
+      "contextSufficiency": "MEDIUM",
+      "triage": "PROCEED",
+      "problemClear": true,
+      "driftDetected": false,
+      "notUnderstoodSignal": false,
+      "gain": [],
+      "newOptions": [],
+      "state": {
+        "coreProblem": "Решение",
+        "facts": [],
+        "hypotheses": []
+      }
+    },
+    "expect": {
+      "maxQuestions": 1,
+      "calls": 2,
+      "noMarkup": true,
+      "noLabels": true,
+      "factsAbsent": []
+    }
+  },
+  {
+    "id": "unclear",
+    "first": "Короче, всё сложно, надо что-то менять, но непонятно что.",
+    "second": null,
+    "previousAssistant": null,
+    "model": {
+      "reply": "Пока не ясно, что именно менять. Вижу развилку: работа, жильё или отношения.",
+      "question": "Где сейчас сильнее всего хочется перемен?",
+      "contextSufficiency": "LOW",
+      "triage": "PROCEED",
+      "problemClear": false,
+      "driftDetected": false,
+      "notUnderstoodSignal": false,
+      "gain": [],
+      "newOptions": [],
+      "state": {
+        "coreProblem": "Решение",
+        "facts": [],
+        "hypotheses": []
+      }
+    },
+    "expect": {
+      "maxQuestions": 1,
+      "calls": 1,
+      "noMarkup": true,
+      "noLabels": true,
+      "factsAbsent": []
+    }
+  },
+  {
+    "id": "tense",
+    "first": "Я больше не выдерживаю этого начальника, он меня унижает при всех. Хочу уволиться завтра же.",
+    "second": null,
+    "previousAssistant": null,
+    "model": {
+      "reply": "Это звучит очень тяжело. Решение можно отложить на день-два, чтобы не принимать его на пике. Поговорите с кем-то близким.",
+      "question": "Что вы будете делать завтра утром?",
+      "contextSufficiency": "LOW",
+      "triage": "CRISIS",
+      "problemClear": true,
+      "driftDetected": false,
+      "notUnderstoodSignal": false,
+      "gain": [],
+      "newOptions": [],
+      "state": {
+        "coreProblem": "Решение",
+        "facts": [],
+        "hypotheses": []
+      }
+    },
+    "expect": {
+      "maxQuestions": 1,
+      "calls": 1,
+      "noMarkup": true,
+      "noLabels": true,
+      "factsAbsent": []
+    }
+  },
+  {
+    "id": "not-understood",
+    "first": "Выбираю между двумя предложениями о работе.",
+    "second": "Ты меня не понял. Дело не в деньгах.",
+    "previousAssistant": "Сравним зарплаты.",
+    "model": {
+      "reply": "Понял: дело не в деньгах. Тогда что отличает предложения для вас: люди, рост или график?",
+      "question": "Что из этого для вас важнее всего?",
+      "contextSufficiency": "LOW",
+      "triage": "PROCEED",
+      "problemClear": true,
+      "driftDetected": false,
+      "notUnderstoodSignal": true,
+      "gain": [],
+      "newOptions": [],
+      "state": {
+        "coreProblem": "Решение",
+        "facts": [],
+        "hypotheses": []
+      }
+    },
+    "expect": {
+      "maxQuestions": 1,
+      "calls": 1,
+      "noMarkup": true,
+      "noLabels": true,
+      "factsAbsent": []
+    }
+  },
+  {
+    "id": "already-thought",
+    "first": "Я уже понял, что главный риск при открытии кофейни — аренда. Сравнил три помещения, у двух арендодатели не дают договор больше года.",
+    "second": null,
+    "previousAssistant": null,
+    "model": {
+      "reply": "Раз риск в аренде, проверьте его дёшево: попросите у арендодателей письменные условия продления. Это решит, остаётся ли вариант с коротким договором.",
+      "question": "",
+      "contextSufficiency": "HIGH",
+      "triage": "PROCEED",
+      "problemClear": true,
+      "driftDetected": false,
+      "notUnderstoodSignal": false,
+      "gain": [],
+      "newOptions": [],
+      "state": {
+        "coreProblem": "Решение",
+        "facts": [],
+        "hypotheses": []
+      }
+    },
+    "expect": {
+      "maxQuestions": 0,
+      "calls": 2,
+      "noMarkup": true,
+      "noLabels": true,
+      "factsAbsent": []
+    }
+  },
+  {
+    "id": "hypothesis-trap",
+    "first": "Думаю, не пора ли мне менять профессию. Мне 38, работаю бухгалтером, скучно.",
+    "second": "Да, мне кажется, дело в выгорании.",
+    "previousAssistant": "Скука обычно означает, что работа не даёт роста.",
+    "model": {
+      "reply": "Скука может быть про работу, а может и нет. Что менялось в последние полгода? Проверьте на отпуске.",
+      "question": "Когда скука началась?",
+      "contextSufficiency": "MEDIUM",
+      "triage": "PROCEED",
+      "problemClear": true,
+      "driftDetected": false,
+      "notUnderstoodSignal": false,
+      "gain": [],
+      "newOptions": [],
+      "state": {
+        "coreProblem": "Решение",
+        "facts": [
+          "Скука обычно означает, что работа не даёт роста.",
+          "Мне 38"
+        ],
+        "hypotheses": []
+      }
+    },
+    "expect": {
+      "maxQuestions": 1,
+      "calls": 2,
+      "noMarkup": true,
+      "noLabels": true,
+      "factsAbsent": [
+        "Скука обычно означает, что работа не даёт роста."
+      ]
+    }
+  },
+  {
+    "id": "data-missing",
+    "first": "Хочу взять ипотеку. Платёж будет 40% дохода. Нормально ли это?",
+    "second": null,
+    "previousAssistant": null,
+    "model": {
+      "reply": "Единого порога нет: он зависит от стабильности дохода и запаса.",
+      "question": "Какой у вас запас в месяцах расходов?",
+      "contextSufficiency": "MEDIUM",
+      "triage": "PROCEED",
+      "problemClear": true,
+      "driftDetected": false,
+      "notUnderstoodSignal": false,
+      "gain": [],
+      "newOptions": [],
+      "state": {
+        "coreProblem": "Решение",
+        "facts": [],
+        "hypotheses": []
+      }
+    },
+    "expect": {
+      "maxQuestions": 1,
+      "calls": 2,
+      "noMarkup": true,
+      "noLabels": true,
+      "factsAbsent": []
+    }
+  },
+  {
+    "id": "choose-for-me",
+    "first": "Скажи прямо: мне оставаться в городе с родителями или ехать учиться в другой?",
+    "second": null,
+    "previousAssistant": null,
+    "model": {
+      "reply": "Выбрать за вас не буду. Выбор зависит от того, что вы хотите получить от учёбы и что для вас значит быть рядом с родителями. Какой факт решил бы дело: наличие нужной программы дома?",
+      "question": "Есть ли нужная программа в вашем городе?",
+      "contextSufficiency": "MEDIUM",
+      "triage": "PROCEED",
+      "problemClear": true,
+      "driftDetected": false,
+      "notUnderstoodSignal": false,
+      "gain": [],
+      "newOptions": [],
+      "state": {
+        "coreProblem": "Решение",
+        "facts": [],
+        "hypotheses": []
+      }
+    },
+    "expect": {
+      "maxQuestions": 1,
+      "calls": 2,
+      "noMarkup": true,
+      "noLabels": true,
+      "factsAbsent": []
+    }
+  },
+  {
+    "id": "other-person",
+    "first": "Хочу поговорить с мужем о том, чтобы переехать ближе к моей маме, но боюсь, что он обидится.",
+    "second": null,
+    "previousAssistant": null,
+    "model": {
+      "reply": "Обиду мужа вы пока предполагаете, это гипотеза. Наблюдаемо другое: как он реагировал на разговоры о маме раньше.",
+      "question": "Как он реагировал, когда вы раньше поднимали эту тему?",
+      "contextSufficiency": "MEDIUM",
+      "triage": "PROCEED",
+      "problemClear": true,
+      "driftDetected": false,
+      "notUnderstoodSignal": false,
+      "gain": [],
+      "newOptions": [],
+      "state": {
+        "coreProblem": "Решение",
+        "facts": [],
+        "hypotheses": []
+      }
+    },
+    "expect": {
+      "maxQuestions": 1,
+      "calls": 2,
+      "noMarkup": true,
+      "noLabels": true,
+      "factsAbsent": []
+    }
+  }
+]
