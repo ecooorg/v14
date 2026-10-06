@@ -210,14 +210,29 @@ export function validateNumbers(out: string, input: string, derived: string[] = 
   const allowedWord = new Set(allowed);
   const wordNums: string[] = [];
   const tokens = normalizedWords(out);
+  const knownWordTokens = new Set([
+    ...Object.keys(EN_ONES), ...Object.keys(EN_TENS),
+    ...Object.keys(RU_ONES), ...Object.keys(RU_TENS), ...Object.keys(RU_HUNDREDS),
+    'hundred', 'thousand', 'тысяча', 'тысячи', 'тысяч',
+  ]);
+
+  // Validate a whole number-word phrase, not each word separately. This is
+  // important for compound values such as "twenty three days" /
+  // "двадцать три дня": the grounded value is 23, not an invented 3.
   for (let i = 0; i < tokens.length; i++) {
-    const parsed = parseWordSequence([tokens[i]]);
-    if (parsed === null) continue;
+    if (!knownWordTokens.has(tokens[i])) continue;
+    let j = i;
+    while (j < tokens.length && knownWordTokens.has(tokens[j])) j++;
+    const parsed = parseWordSequence(tokens.slice(i, j));
+    if (parsed === null) { i = j - 1; continue; }
+
     const value = String(parsed);
-    if (allowedWord.has(value)) continue;
-    const next = tokens[i + 1];
-    if (next && GENERIC_COUNT_NOUNS.has(next)) continue;
-    if (next && FACT_UNITS.has(next)) wordNums.push(`word:${value}`);
+    const next = tokens[j];
+    if (next && GENERIC_COUNT_NOUNS.has(next)) { i = j - 1; continue; }
+    if (next && FACT_UNITS.has(next) && !allowedWord.has(value)) {
+      wordNums.push(`word:${value}`);
+    }
+    i = j - 1;
   }
   return [...bad, ...wordNums];
 }
