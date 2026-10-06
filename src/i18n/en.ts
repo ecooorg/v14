@@ -1,7 +1,8 @@
+import { APP_VERSION } from '../config';
 /** Plain, friendly UI strings */
 export const en = {
   app: 'Bifurcation Engine',
-  subtitle: 'A calm way to think through a hard choice · v13',
+  subtitle: 'A calm way to think through a hard choice · v' + APP_VERSION,
   formula: 'UNDERSTAND → EXPAND → ATTACK → VERIFY → LEARN',
   human: 'You',
   model: 'AI',
