@@ -2,7 +2,7 @@
 <html lang="en" class="dark h-full">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>Bifurcation Engine — Decision Cockpit</title>
     <meta name="description" content="Decision Cockpit: UNDERSTAND → EXPAND → ATTACK → VERIFY → LEARN. Illustration of the Before You Choose method." />
     <meta property="og:title" content="Bifurcation Engine — Decision Cockpit" />
@@ -24,7 +24,7 @@
   <body class="min-h-full bg-[#070b14] text-slate-100 font-sans antialiased">
     <div id="root" class="min-h-full w-full"></div>
     <script>
-      // Recovery build: unregister stale service workers from older v14/v15 deployments.
+      // Unregister stale service workers (PWA is disabled).
       if ('serviceWorker' in navigator) { navigator.serviceWorker.getRegistrations().then(rs => rs.forEach(r => r.unregister())).catch(() => {}); }
     </script>
     <script type="module" src="/src/main.tsx"></script>

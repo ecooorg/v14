@@ -1,7 +1,7 @@
 {
   "name": "bifurcation-engine",
   "private": true,
-  "version": "13.0.1-recovery",
+  "version": "20.0.1",
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
@@ -10,9 +10,16 @@
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit",
     "lint:copy": "node scripts/lint-copy.mjs",
+    "test:merge": "tsx tests/driveMerge.test.mjs",
+    "test:security": "tsx tests/security.test.mjs",
     "test:core": "tsx tests/core.mjs",
-    "check": "npm run lint:copy && npm run test:core",
-    "test:virtual": "bash tests/virtual/run.sh"
+    "test:reasoning": "tsx tests/reasoning.test.mjs",
+    "test:export": "tsx tests/export-name.test.mjs",
+    "test:sync": "tsx tests/driveSync.test.mjs",
+    "check": "node scripts/check-version.mjs && npm run test:version && npm run lint:copy && npm run test:merge && npm run test:security && npm run test:core && npm run test:reasoning && npm run test:export && npm run test:sync && npm run test:virtual",
+    "test:virtual": "bash tests/virtual/run.sh",
+    "test:ui": "node --import tsx tests/ui/ui-check.mjs",
+    "test:version": "node tests/version-check.test.mjs"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
@@ -34,6 +41,7 @@
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "autoprefixer": "^10.4.21",
+    "playwright": "^1.63.0",
     "tailwindcss": "^4.3.3",
     "typescript": "^5.8.2"
   },

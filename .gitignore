@@ -1,0 +1,4 @@
+node_modules
+dist
+tests/ui/_local*
+ui-welcome-*.png

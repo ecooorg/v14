@@ -1,5 +1,70 @@
 # Agent behavior and model routing changes
 
+## v20.0.1
+
+- Test-only release, application code unchanged. Found while running QA-03 on real packages.
+- `tests/ui/ui-check.mjs`: after Start a fresh profile shows "Nothing here yet", so the old test never opened a conversation (chat checks passed with nothing to check, and the "Method" button was never found). The test now presses "New decision" and waits for the textarea, so the chat, Method and expanded-mode checks run for real. Defect in the test, not in the UI.
+- `tests/ui/ui-check.mjs`: console errors caused by blocked Google Fonts requests (fonts.googleapis.com, fonts.gstatic.com) are ignored; they fail with 403 in sandboxes without internet access and the CSS has a fallback font stack. Other console errors still fail the test. Environment issue.
+- Version raised to 20.0.1 in `src/config.ts`, `package.json`, `package-lock.json`, README, DEPLOY_RAILWAY.md.
+- Not checked: WebKit, real iPhone focus zoom, live Gemini, real Google Drive (QA-04, PERF-02, S2-07 remain with the owner).
+- Environment note: the sandbox blocked `cdn.playwright.dev`, so Chromium 153 was taken from the npm package `@sparticuz/chromium` and placed in the Playwright browsers folder. Same major version as Playwright expects, but not the official build.
+
+## v20.0.0
+- Release that closes the v19 review (see the v20 specification). The conversation prompt text, the model list and the chain order are NOT changed. Versions "19.1" and "19.2" were never marked in the files (everything said 19.0.0); their content is part of this release.
+- VER-01 / VER-02: version 20.0.0 in `src/config.ts`, `package.json`, `package-lock.json`, README, DEPLOY_RAILWAY.md. README "Version" section rewritten (it still said 17.0.0). `scripts/check-version.mjs` now flags any stale `v10`-`v19` / `10.x.x`-`19.x.x` label in README, DEPLOY_RAILWAY.md, `server.ts`, `App.tsx`, `config.ts`, `en.ts`, `icsBuilder.ts`, `index.html`, `railway.toml` and `.env.example` (code comment lines are exempt; before, only 10-15 and 18 were caught).
+- DOC-02: DEPLOY_RAILWAY.md rewritten to match the code: signed session cookie (not server-side tokens), `SESSION_SECRET` required (16+ characters), and all variables the server reads (`MAX_MODEL_CALLS`, `LOGIN_MAX_FAILS`, `LOGIN_WINDOW_MIN`, `TRUST_PROXY_HOPS`, `LLM_CALL_TIMEOUT_MS`, `LLM_TOTAL_DEADLINE_MS`, ...). README "Deployment notes" fixed.
+- MOD-01: the "Model routing" section below now describes what the code does (it used to name `gemini-3.8-flash` as primary). No behaviour change.
+- UI-08: every `.ghost`, `.primary` and `.danger` control has a 44 x 44 px tap area on all widths (before: only header buttons below 600 px; the Start button was about 35 px); list, chip and card buttons get the same size.
+- UI-09: text in all inputs, textareas and selects is 16 px (the chat field was 15 px, so iOS zoomed on focus).
+- UI-10: tiny text raised: 8-10 px -> 11 px, 11 px -> 12 px (CSS and inline styles).
+- `tests/ui/ui-check.mjs` now also checks input font size, tap areas in the chat, the History panel and the Google AI screen, at 360 / 414 / 768 / 1024 px.
+- ROB-01: `/api/expand` and `/api/redteam-pair` check the shape of the answer (3-5 options with the three required kinds; two red-team rounds). A wrong shape gets ONE retry on the reserve model inside the request's `MAX_MODEL_CALLS` budget; `meta` sums both calls; if the retry also fails the error is still 500 `SCHEMA`. Code: `generateChecked` in `server.ts`; tests: section K of `tests/virtual/stage2.test.mjs`.
+- HIS-01 (decision): History keeps showing the dialogs of this device. After connecting, the local and Drive libraries are merged and written to both sides, so a dialog that exists only on Drive reaches the device at the first sync; a separate Drive-only list would need Drive reads that cannot be tested without real Google. Not changed.
+- NOT done in this environment (no network, no live model, no real Google): QA-03 (`npm ci && npm run check && npm run test:ui` on real packages), QA-04 (`QA_DRIVE_CHECKLIST.md` on real Google and devices), PERF-02 (`scripts/measure-prompt.mjs`), S2-07 (`scripts/acceptance-s2-06.mjs`, blind comparison), PERF-03 (prompt shortening, allowed only after PERF-02 and S2-07). The owner runs them; results go here. Until then the changes of this release are checked only by syntax checks and by reading the code.
+- Result record (fill in): QA-03 date/result: 2026-10-06, PARTIAL on real packages (Node 22.22.2, Linux, Chromium 153 only; no WebKit, no real iPhone): `npm ci` OK; `npm run lint` OK; `npm run build` OK; `npm run check` OK (stage2 202/202); `npm run test:ui` OK on 360/414/768/1024 px (74 checks) after two test-only fixes, see v20.0.1. QA-04 date/result: pending. PERF-02 average / maximum prompt size: pending. S2-07 date, models, ratings, decision: pending.
+
+## v19.0.0
+- Fixes and test repair after the full v18 check with a model bridge. The conversation prompt text, the model list and the chain order are NOT changed.
+- FIX-02 follow-up: cutting a question sentence out of `reply` no longer glues the neighbouring sentences together ("part.Next" -> "part. Next"). Test added.
+- PERF-01 follow-up: when the quality check triggers a retry, `meta` now sums `calls`, `promptChars`, `durationMs` and tokens of both model calls (before, only the second call was counted).
+- QA-02: the browser check now passes the welcome screen (Start button), checks the Start tap area, watches console and page errors, takes a welcome screenshot per width, and a failure on one width can no longer hang the run.
+- Housekeeping: version 19.0.0 everywhere; `check-version` also catches stale 16-18 labels; `tests/ui/_local*` is ignored.
+- Test repair: `tests/fixtures/regression.json` expected 1 model call for cases where the quality retry fires (it encoded the PERF-01 bug); now 2, and the test also checks `meta.calls` against the real number of calls reaching the fake model.
+- S-3: `scrubInternalLabels` no longer leaves orphaned punctuation ("; .", "..", "?.") after removing a label, and bare source tags `(USER_DATA)` / `(GENERAL_PATTERN)` / `(GUESS)` are removed too.
+- S-4: one model-call budget (`MAX_MODEL_CALLS`) per HTTP request: the quality retry in `/api/conversation` and the format retry in `/api/synthesis` share it with the first call (before, each `generate()` counted separately).
+- S-5: `/api/synthesis` checks the answer (exactly 5 paragraphs, 250-350 words, tolerance 10 %, word count skipped for CJK). One retry on another model; if it still fails the answer is returned with `meta.warnings` (no hard error). `meta` sums both calls.
+- Error mapping: quota / rate-limit errors now give 429 (not 500) on `/api/premortem`, `/api/experiment-draft`, `/api/forecast-wording`, `/api/synthesis`, `/api/review`, like the other endpoints.
+- New suite `tests/virtual/stage2.test.mjs` (195 checks, part of `npm run check`): auth, 400/401/410, EVPI 10/40/30, chat invariants over 10 situations x 7 mutations, crisis (RU / ES / every marker), model failures and fallback, headers and key not logged, all 12 extended endpoints.
+- Open for the next stages: Start button size fix if the browser measurement shows < 44 px; `/api/expand` and `/api/redteam-pair` return 500 SCHEMA on a wrong model shape without trying another model (design decision, not changed).
+
+## v18.0.0
+- Stage 2, step 5 (PERF-01 done; S2-06 prepared, to be run by the owner on a live model). The conversation prompt text, the model list and the chain order are NOT changed in this build.
+- PERF-01: every model call logs `llm_usage` (model, stage, `promptChars` = system instruction + prompt, `inputTokens` / `outputTokens` when the API returns `usageMetadata`). The response `meta` has `promptChars`, and `inputTokens` / `outputTokens` when available, summed over all model responses of the request (retries included). The client only stores `meta`; nothing is shown to the user. Code: `generate()` in `server.ts`; test: `tests/virtual/perf.test.mjs`.
+- Measuring: `scripts/measure-prompt.mjs` runs the 10 control situations plus one 4-turn dialogue and writes `perf-report.json` (average and maximum). Needs a running server and the owner's key (`x-byok-key`).
+- S2-06: `scripts/acceptance-s2-06.mjs` (shared cases in `scripts/cases.mjs`) runs the 10 situations on two servers (reference build and build under test, labels `A_LABEL` / `B_LABEL`) and writes a blind sheet plus a separate key; it also records prompt size per case.
+- Prompt shortening: NOT done. The owner's decision 4 allows it only after live measurements and a blind check on the 10 situations; neither can be run without a live model. Procedure: measure v17.5 and v18 (`measure-prompt.mjs`), shorten repeats in the prompt without changing the meaning of v16 / v17 rules, run S2-06 (reference = unshortened, test = shortened), accept or revert.
+- S2-06 result and decision: pending (owner). Record here: date, models, ratings per criterion, comparison with an ordinary chat assistant, decision (accept / rework).
+
+## v17.5.0
+- Stage 1, steps 1-4 done (end of stage 1). FIX-02: the visible reply now holds at most one question. Question sentences inside `reply` are dropped when a separate `question` field is used or when the reply already holds one; with HIGH context or in crisis mode the visible reply holds no questions. Code: `buildVisibleReply` in `server/reasoningState.ts`.
+- UI-06: export file is `bifurcation_<APP_VERSION>_<time>.json`; old files still import. UI-07: pinch zoom allowed, input text 16 px. CODE-01: one `SCHEMA_VERSION` (in `src/config.ts`, re-exported from `src/types/decision.ts`; value 11 unchanged).
+- TEST-01 (part): the Drive sync core moved from `useDrive` into the pure function `syncOnce` (`src/utils/driveSync.ts`, Drive client injected); tests with a fake Drive in `tests/driveSync.test.mjs`.
+- DRV-01: right before writing, the file's id and modified time are read again; if they changed since the read, the file is read again and merged (at most 3 times). If Drive keeps changing, nothing is written, local dialogs stay untouched and a short message is shown. Merge rules 1-3 and backups are unchanged.
+- DRV-02: autosave writes only when the local library has records newer than the last save of this device; at least `AUTOSAVE_MIN_INTERVAL_MS` (30 s, `VITE_AUTOSAVE_MIN_INTERVAL_MS` overrides) between two writes; the 4 s debounce stays. Manual "Save to Drive" and connect always write at once. Autosave conflict/failure messages are shown at most once per interval. Code: `src/utils/autosave.ts`; tests in `tests/driveSync.test.mjs`. Manual check list: `QA_DRIVE_CHECKLIST.md`.
+- QA-02: 10 control situations as fixtures (`tests/fixtures/regression.json`) run by `tests/virtual/regression.test.mjs` against the real server with a fake model (checks: no markup, no service labels, at most one question, hypotheses not in facts, one model call). Browser check of the interface at 360/414/768/1024 px: `npm run test:ui` (Playwright, not part of `npm run check`); free CI job in `.github/workflows/ui-check.yml`.
+
+## v17.0.0
+- Stage 2 (in progress): answer improvements on top of the v16 core. Current version is defined in `src/config.ts`.
+- INFRA-01: a bad-format answer (invalid JSON or numbers outside the input) gets one retry on another model instead of walking the whole chain; at most `MAX_MODEL_CALLS` (default 4) model responses per request; requests made with the user's own key (`x-byok-key`) do not use the server's daily cap; `meta` now has `calls` and `lightFallback` (set when the strong chain falls back to a lite model).
+- I2, methodology layer: the conversation prompt gets a "V17 layer" (is the problem clear; hold the core problem; model hypotheses are not facts or goals; "you did not understand me" is recognised by the model, no keyword list; short answer by default; at most one question; drift check; plain text, dash lists). The checks run inside the same model call: service fields `problemClear`, `driftDetected`, `notUnderstoodSignal` are read on the server and are never sent to the client or shown.
+- I2, state: the existing `state` object is extended in place with `coreProblem`, `userConcern`, `userReasoningState`; `hypotheses` stay separate from `facts`. The server reads old states without errors, caps size (items, list length, characters), drops unknown fields, and moves a new "fact" that only echoes the previous model reply into `hypotheses`. Code: `server/reasoningState.ts`.
+- I2, safety nets: only the first question is kept; leaked service labels and field names are removed from the reply; `stripMarkdown` stays.
+- I4: `scripts/acceptance-s2-05.mjs` runs the 10 acceptance situations on v16.5 and v17 and writes a blind sheet (the key is a separate file). Also fixed type errors in `App.tsx` (missing `Field` component, Brier input type), so `npm run lint` is clean.
+- Final cleanup: removed unused `pendingRetry` state in `useDrive.ts` (reconnect already merges and retries the save); neutral CSS comments.
+
+## v16.5.0
+- Interface, Google Drive safety, sign-in hardening and tests. Answer methodology unchanged from v16.0.0. Current version is defined in `src/config.ts`.
+
 ## v13 (versions unified; earlier 8/10/11/12 labels retired)
 - Conversation is the default; the method is kept by the agent. Entry offers four optional starting intents (think out loud / argue against my plan / prepare for a conversation / what to find out first) as plain chips, not forms.
 - Memory without accounts: the client stores the agent's `state` and `nextStep` per decision and sends them back; "Noted for next time" shows the step. A visit after 1+ day tells the agent (`returningAfterDays`) to start from what happened.
@@ -27,12 +92,9 @@
 - Prompt contains no subject-matter examples. Subject examples belong in test cases (tests/virtual), not in the prompt.
 
 ## Model routing
-- Strong primary: `gemini-3.8-flash`
-- Strong reserve: `gemini-3.1-pro-preview`
-- Light: `gemini-3.5-flash-lite`
-- At most one reserve-model fallback is attempted for a request.
-- Per-model 429/rate-limit errors may trigger one reserve attempt.
-- Transient 5xx/service-unavailable/timeout errors may trigger one reserve attempt.
-- Daily/provider quota exhaustion does not cascade across models.
-- The application also counts actual model calls against `DAILY_CALL_CAP`.
-- The conversation quality-gate retry explicitly starts on the reserve strong model, so it does not repeat the primary model unnecessarily.
+- Default order for both chains: `gemini-3.6-flash`, `gemini-3.5-flash`, `gemini-3.5-flash-lite`, `gemini-3.1-flash-lite`, then (strong chain) `gemini-flash-latest`, `gemini-flash-lite-latest`, `gemini-3.8-flash`; the light chain is `gemini-3.6-flash`, `gemini-3.5-flash`, `gemini-3.5-flash-lite`, `gemini-3.1-flash-lite`, `gemini-flash-lite-latest`. Override with `MODEL_CASCADE_STRONG` / `MODEL_CASCADE_LIGHT`; the user's preferred model only changes the starting point.
+- A request never walks the whole chain for a format problem: one retry on another model, at most `MAX_MODEL_CALLS` (default 4) model responses per HTTP request.
+- Per-model 429/rate-limit and transient 5xx/timeout errors move on to the next model; daily/provider quota exhaustion does not cascade across models.
+- The application counts model calls against `DAILY_CALL_CAP`; requests with the user's own key (`x-byok-key`) are not counted.
+- The conversation quality-gate retry explicitly starts on the reserve strong model (index 1), as do the synthesis and shape-check retries.
+- `meta.lightFallback` is set when the strong chain ends up on a light model.
