@@ -531,7 +531,7 @@ function MethodGuide({ step, stageMeta, busy }: { step: Step; stageMeta: typeof 
     'Record what happened and learn from the difference between expectation and reality.',
   ];
   const loopActions = [
-    'Your task: explain the situation and answer only the questions that could change the decision. “I don't know” is a valid answer.',
+    'Your task: explain the situation and answer only the questions that could change the decision. “I don\'t know” is a valid answer.',
     'Your task: review the possible paths. You are not choosing yet.',
     'Your task: look at the strongest reasons the paths could fail.',
     'Your task: decide what to do, or define the cheapest useful check before committing.',
@@ -1088,21 +1088,40 @@ function UnderstandScreen({
     });
   };
 
-  const conversation: any[] = Array.isArray(d.modelSuggestions?.conversation) ? d.modelSuggestions!.conversation as any[] : [];
-  const firstAssistantReply = [...conversation].reverse().find((m: any) => m.role === 'assistant');
+  const list = (items: any[] | undefined) => (items || []).filter((x) => x?.text).slice(0, 6);
+  const facts = list(d.radar?.facts);
+  const assumptions = list(d.radar?.assumptions);
+  const interpretations = list(d.radar?.interpretations);
+  const values = list(d.radar?.values);
+  const externalChecks = list(d.radar?.needsExternalCheck);
+  const unresolved = (d.radar?.unknowns || []).filter((u) => !u.discarded && !u.answer && u.status !== 'USER_UNKNOWN' && u.status !== 'ACCEPTED_UNCERTAINTY');
+
+  const RadarBlock = ({ title, items, hint }: { title: string; items: any[]; hint?: string }) => {
+    if (!items.length) return null;
+    return (
+      <div className="question">
+        <div className="listhead">{title}</div>
+        {hint && <div className="expert-info-hint">{hint}</div>}
+        <ul>
+          {items.map((x, i) => <li key={x.id || i}>{x.text}</li>)}
+        </ul>
+      </div>
+    );
+  };
 
   return (
     <div className="friendly-flow">
       <ExpertStageIntro
         step="1 · UNDERSTAND"
         title="First, make the situation clear"
-        task="You do not need to solve the decision yet. Answer only the questions whose answers could change what you do. If you do not know, say so."
-        next="once the important gaps are clear, we will widen the set of possible paths."
+        task="You do not need to solve the decision yet. The app separates what you told it from assumptions, values, and open questions that could change the decision."
+        next="answer the important questions below. “I don't know” is a useful answer — it marks something worth checking."
       />
+
       <div className="method-transition-card">
-        <div className="eyebrow">YOUR STORY · RECEIVED</div>
-        <p className="method-transition-title">Good. Your situation is now part of the decision analysis.</p>
-        <p className="method-transition-copy">You do not need to choose anything yet. First we will separate what is known from what is assumed and find the unknowns that could change the decision.</p>
+        <div className="eyebrow">YOUR SITUATION</div>
+        <p className="method-transition-title">We start with what you actually told us.</p>
+        <p className="method-transition-copy">Nothing here is a verdict. This is the working picture that the next steps will test.</p>
         {d.brief.decision && (
           <details className="method-story-details">
             <summary>Show the story you entered</summary>
@@ -1111,50 +1130,57 @@ function UnderstandScreen({
         )}
       </div>
 
-      {firstAssistantReply && (
+      {!d.radar && (
         <AssistantMessage>
-          <p className="method-response-label">FIRST RESPONSE</p>
-          <div className="conversation-message-text" translate="no" dir="auto">{firstAssistantReply.content}</div>
+          <p style={{ marginTop: 0 }}>{busy ? 'I am mapping your situation now. The useful result will appear here as facts, assumptions, values, and questions.' : 'The first step is ready. We will map the situation before discussing which option is better.'}</p>
         </AssistantMessage>
       )}
-
-      {preview && (
-        <AssistantMessage>
-          <p style={{ marginTop: 0 }}>{preview.summary}</p>
-          <p>At this point I would not reduce the situation to the two choices already visible. There may be a smaller, reversible, hybrid, or information-first step worth considering before a major commitment.</p>
-          {Array.isArray(preview.possibilities) && preview.possibilities.length > 0 && (
-            <p>{preview.possibilities.slice(0, 5).join('. ')}.</p>
-          )}
-        </AssistantMessage>
-      )}
-
-      {!d.radar && <AssistantMessage><p style={{ margin: 0 }}>{busy ? 'I am working through the first step now. When it is ready, you will see what is known, what is assumed, and the first question that could change the decision.' : 'The first step is ready. We will start by identifying what could change the picture.'}</p></AssistantMessage>}
 
       {d.radar && (
         <>
           <AssistantMessage>
-            <p style={{ marginTop: 0 }}>Here is the important part of the picture so far.</p>
-            {d.radar.facts?.length > 0 && <p><b>What seems known:</b> {d.radar.facts.slice(0, 4).map((x) => x.text).join('; ')}</p>}
-            {d.radar.assumptions?.length > 0 && <p><b>What may be assumed:</b> {d.radar.assumptions.slice(0, 4).map((x) => x.text).join('; ')}</p>}
-            {d.radar.interpretations?.length > 0 && <p><b>What may be an interpretation:</b> {d.radar.interpretations.slice(0, 3).map((x) => x.text).join('; ')}</p>}
-            {d.radar.values?.length > 0 && <p><b>What matters to you:</b> {d.radar.values.slice(0, 3).map((x) => x.text).join('; ')}</p>}
+            <p style={{ marginTop: 0 }}><b>Here is the current picture.</b></p>
+            <RadarBlock title="What we know" items={facts} hint="Statements that came directly from your situation." />
+            <RadarBlock title="What we may be assuming" items={assumptions} hint="Ideas that may be true, but should not be treated as facts yet." />
+            <RadarBlock title="What may be an interpretation" items={interpretations} />
+            <RadarBlock title="What matters to you" items={values} hint="Preferences or values that can legitimately affect your choice." />
+            <RadarBlock title="What needs an outside check" items={externalChecks} hint="Facts that should be confirmed against an independent source." />
           </AssistantMessage>
+
+          {unresolved.length > 0 && (
+            <AssistantMessage>
+              <p style={{ marginTop: 0 }}><b>Open questions</b></p>
+              <p>These are not questions for the sake of analysis. They are questions whose answers could actually change the decision.</p>
+              <ul>
+                {unresolved.slice(0, 6).map((u) => (
+                  <li key={u.id} style={{ marginBottom: 8 }}>
+                    <b>{u.question}</b>
+                    {u.whyChangesDecision && <div style={{ marginTop: 3 }}>{u.whyChangesDecision}</div>}
+                  </li>
+                ))}
+              </ul>
+            </AssistantMessage>
+          )}
 
           {current ? (
             <AssistantMessage>
-              <p style={{ marginTop: 0 }}><b>One thing could change the decision:</b> {current.question}</p>
-              {current.whyChangesDecision && <p>{current.whyChangesDecision}</p>}
-              {current.howToFindOut && <p><b>How to find out:</b> {current.howToFindOut}</p>}
-              <textarea value={answer} onChange={(e) => setAnswer(e.target.value)} placeholder="Your answer, or leave it blank if you do not know" rows={3} style={{ width: '100%' }} />
-              <div className="actions" style={{ marginTop: 10 }}>
-                <button className="primary" disabled={!answer.trim() || busy} onClick={() => resolveCurrent('ANSWER')}>Answer</button>
-                <button className="ghost" disabled={busy} onClick={() => resolveCurrent('UNKNOWN')}>I don't know</button>
+              <div className="question">
+                <div className="listhead">THE NEXT QUESTION</div>
+                <p style={{ margin: '6px 0 10px', fontSize: 18 }}><b>{current.question}</b></p>
+                {current.whyChangesDecision && <p>{current.whyChangesDecision}</p>}
+                {current.howToFindOut && <p><b>How to find out:</b> {current.howToFindOut}</p>}
+                <textarea value={answer} onChange={(e) => setAnswer(e.target.value)} placeholder="Your answer, or leave it blank if you do not know" rows={4} style={{ width: '100%' }} />
+                <div className="actions" style={{ marginTop: 10 }}>
+                  <button className="primary" disabled={!answer.trim() || busy} onClick={() => resolveCurrent('ANSWER')}>Answer <ArrowRight size={16} /></button>
+                  <button className="ghost" disabled={busy} onClick={() => resolveCurrent('UNKNOWN')}>I don't know</button>
+                </div>
               </div>
             </AssistantMessage>
           ) : (
             <AssistantMessage>
-              <p style={{ marginTop: 0 }}>There is no more critical information I need from you right now. The next useful step is to widen the set of possible paths.</p>
-              <button className="primary" disabled={busy} onClick={goToOptions}>Show me what else is possible <ArrowRight size={16} /></button>
+              <p style={{ marginTop: 0 }}><b>This stage is clear enough to move on.</b></p>
+              <p>There are no unresolved critical questions that need your answer right now. The next step is to widen the possible paths before comparing them.</p>
+              <button className="primary" disabled={busy} onClick={goToOptions}>See the possible paths <ArrowRight size={16} /></button>
             </AssistantMessage>
           )}
         </>
@@ -1177,9 +1203,17 @@ function ExpandScreen({ d, update, busy }: { d: Decision; update: (p: Partial<De
       <AssistantMessage>
         <p style={{ marginTop: 0 }}>We have widened the decision beyond the original framing. These are possibilities to consider — not recommendations.</p>
         <p>Here are the main possibilities to keep on the table:</p>
-        <ol style={{ paddingLeft: 22, marginBottom: 18 }}>
-          {visible.map((o) => <li key={o.id} style={{ marginBottom: 10 }}><b>{o.title}</b>{o.description ? ` — ${o.description}` : ''}</li>)}
-        </ol>
+        <div className="cards">
+          {visible.map((o) => (
+            <div key={o.id} className="option">
+              <div className="optiontop">{o.title}</div>
+              {o.description && <div className="option-copy">{o.description}</div>}
+              {o.keyAssumption && <div><b>Key assumption:</b> {o.keyAssumption}</div>}
+              {o.exitCost && <div><b>If it is wrong:</b> {o.exitCost}</div>}
+              {o.cheapestTest && <div><b>Cheapest useful check:</b> {o.cheapestTest}</div>}
+            </div>
+          ))}
+        </div>
         <p>The useful question now is not “which one wins?” but “what would we need to learn before one of these becomes clearly more or less workable?”</p>
         <div className="actions">
           <button className="primary" disabled={busy || visible.length < 2} onClick={() => update({ step: 'ATTACK', interactionState: 'ATTACK_READY' })}>Let’s test what could go wrong <ArrowRight size={16} /></button>
@@ -1243,10 +1277,15 @@ function AttackScreen({
             const option = d.options.find((o) => o.id === r.targetOptionId);
             return (
               <AssistantMessage key={r.role}>
-                <p style={{ marginTop: 0 }}><b>{option?.title || 'This path'}</b> could run into:</p>
-                <ul>
-                  {r.objections.map((o) => <li key={o.id} style={{ marginBottom: 8 }}>{o.argument}{o.failureMode ? ` The failure mode is: ${o.failureMode}.` : ''}</li>)}
-                </ul>
+                <p style={{ marginTop: 0 }}><b>{option?.title || 'This path'}</b> — what could make it fail</p>
+                {r.objections.map((o) => (
+                  <div key={o.id} className="attack">
+                    <div><b>Concern:</b> {o.argument}</div>
+                    {o.hiddenAssumption && <div><b>Hidden assumption:</b> {o.hiddenAssumption}</div>}
+                    {o.failureMode && <div><b>Failure mode:</b> {o.failureMode}</div>}
+                    {o.whatMustBeTrueForCritiqueToBeWeak && <div><b>What would make this concern weaker:</b> {o.whatMustBeTrueForCritiqueToBeWeak}</div>}
+                  </div>
+                ))}
               </AssistantMessage>
             );
           })}
@@ -1931,8 +1970,8 @@ function DecideScreen({
     <div className="friendly-flow">
       <ExpertStageIntro
         step="4 · VERIFY"
-        title="Make your own decision"
-        task="The structured challenge is complete. This is your decision, not the model's. You can choose, postpone, or decide to gather one more fact first."
+        title="Make the decision yours"
+        task="The analysis does not choose for you. Decide what you will do, postpone the decision, or choose one more fact to verify before committing."
         next="your decision and its grounds will be carried into the final picture."
       />
       <AssistantMessage>
