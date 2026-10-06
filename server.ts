@@ -60,31 +60,48 @@ app.use(express.json({ limit: MAX_BODY }));
 const apiKey = process.env.GEMINI_API_KEY;
 const ai = apiKey ? new GoogleGenAI({ apiKey }) : null;
 
+// Availability-first defaults. These are deliberately conservative: the router learns from
+// real requests instead of assuming that the most intelligent model is the most available one.
+// Stable model IDs only; legacy/latest aliases are not used in the default pool.
 const LIGHT_MODELS = (
   process.env.MODEL_CASCADE_LIGHT ||
-  'gemini-3.8-flash,gemini-3.6-flash,gemini-3.5-flash,gemini-3.5-flash-lite,gemini-3.1-flash-lite,gemini-flash-lite-latest'
+  'gemini-3.5-flash-lite,gemini-3.1-flash-lite,gemini-3.5-flash,gemini-3.6-flash,gemini-3.7-flash,gemini-3.8-flash'
 ).split(',').map((s) => s.trim()).filter(Boolean);
 
-// Infrastructure behaviour: try several independent model pools instead of
-// failing after the first overloaded/unavailable model. The default order starts
-// with 3.6/3.5 because that is the preferred connection order for this build.
 const STRONG_MODELS = (
   process.env.MODEL_CASCADE_STRONG ||
-  'gemini-3.8-flash,gemini-3.6-flash,gemini-3.5-flash,gemini-3.5-flash-lite,gemini-3.1-flash-lite,gemini-flash-latest,gemini-flash-lite-latest'
+  'gemini-3.5-flash-lite,gemini-3.1-flash-lite,gemini-3.5-flash,gemini-3.6-flash,gemini-3.7-flash,gemini-3.8-flash'
 ).split(',').map((s) => s.trim()).filter(Boolean);
 
-const LLM_PER_CALL_TIMEOUT_MS = Number(process.env.LLM_CALL_TIMEOUT_MS) || 25000;
-const LLM_TOTAL_DEADLINE_MS = Number(process.env.LLM_TOTAL_DEADLINE_MS) || 85000;
-// INFRA-01: max model responses received per request (format retries included). Overload/timeouts
-// do not use this budget; they are bounded by the total deadline as before.
-const MAX_MODEL_CALLS = Number(process.env.MAX_MODEL_CALLS) || 6;
-const GEMINI_BASE_URL = process.env.GEMINI_BASE_URL || '';   // optional: tests point this at a fake Gemini
+// Keep the whole request bounded. The router is designed to move to a reserve model
+// quickly rather than hammering one overloaded model with repeated retries.
+const LLM_PER_CALL_TIMEOUT_MS = Number(process.env.LLM_CALL_TIMEOUT_MS) || 16000;
+const LLM_TOTAL_DEADLINE_MS = Number(process.env.LLM_TOTAL_DEADLINE_MS) || 55000;
+const MAX_MODEL_CALLS = Number(process.env.MAX_MODEL_CALLS) || 4;
+const GEMINI_BASE_URL = process.env.GEMINI_BASE_URL || '';
 const isLightModel = (m: string) => /lite/i.test(m);
-const LLM_ROUNDS = 2;
-const LLM_ROUND_PAUSE_MS = Number(process.env.LLM_ROUND_PAUSE_MS) || 1000;
-const MODEL_COOLDOWN_TRANSIENT_MS = 45000;
+
+// Adaptive, process-local model health. Railway replicas learn independently; that is
+// intentional because it adds no extra external dependency or quota-consuming probe calls.
+type ModelHealth = {
+  successes: number;
+  transientFailures: number;
+  rateLimits: number;
+  badModelErrors: number;
+  timeouts: number;
+  consecutiveFailures: number;
+  ewmaLatencyMs: number;
+  cooldownUntil: number;
+  lastEventAt: number;
+};
+const modelHealth = new Map<string, ModelHealth>();
+const MODEL_COOLDOWN_503_MS = 60 * 1000;
+const MODEL_COOLDOWN_429_MS = 3 * 60 * 1000;
 const MODEL_COOLDOWN_BAD_MS = 10 * 60 * 1000;
-const modelCooldownUntil = new Map<string, number>();
+const BACKOFF_503_MIN_MS = 700;
+const BACKOFF_503_MAX_MS = 1800;
+const BACKOFF_429_MIN_MS = 4500;
+const BACKOFF_429_MAX_MS = 9000;
 
 // Rate limiting (in-memory)
 const rateMap = new Map<string, { hour: number; count: number; day: number; dayCount: number }>();
@@ -397,11 +414,99 @@ function isBadModelError(e: any): boolean {
 
 function sleep(ms: number) { return new Promise((resolve) => setTimeout(resolve, ms)); }
 
+function healthForModel(model: string): ModelHealth {
+  let h = modelHealth.get(model);
+  if (!h) {
+    h = { successes: 0, transientFailures: 0, rateLimits: 0, badModelErrors: 0, timeouts: 0,
+      consecutiveFailures: 0, ewmaLatencyMs: 0, cooldownUntil: 0, lastEventAt: 0 };
+    modelHealth.set(model, h);
+  }
+  return h;
+}
+
+function noteModelSuccess(model: string, latencyMs: number): void {
+  const h = healthForModel(model);
+  h.successes++;
+  h.consecutiveFailures = 0;
+  h.cooldownUntil = 0;
+  h.lastEventAt = Date.now();
+  h.ewmaLatencyMs = h.ewmaLatencyMs ? (h.ewmaLatencyMs * 0.7 + latencyMs * 0.3) : latencyMs;
+}
+
+function noteModelFailure(model: string, kind: '503' | '429' | 'bad' | 'timeout'): void {
+  const h = healthForModel(model);
+  h.consecutiveFailures++;
+  h.lastEventAt = Date.now();
+  if (kind === '503') {
+    h.transientFailures++;
+    h.cooldownUntil = Date.now() + MODEL_COOLDOWN_503_MS;
+  } else if (kind === '429') {
+    h.rateLimits++;
+    h.cooldownUntil = Date.now() + MODEL_COOLDOWN_429_MS;
+  } else if (kind === 'bad') {
+    h.badModelErrors++;
+    h.cooldownUntil = Date.now() + MODEL_COOLDOWN_BAD_MS;
+  } else {
+    h.timeouts++;
+    h.transientFailures++;
+    h.cooldownUntil = Date.now() + MODEL_COOLDOWN_503_MS;
+  }
+}
+
+function modelScore(model: string, baseIndex: number): number {
+  const h = healthForModel(model);
+  // Base order matters at cold start. Observed failures then outweigh that base priority.
+  // A few successes can promote a reliable model, but one lucky success cannot dominate.
+  const stale = h.lastEventAt > 0 && Date.now() - h.lastEventAt > 2 * 60 * 1000;
+  const penaltyScale = stale ? 0.25 : 1;
+  return baseIndex * 10
+    + h.consecutiveFailures * 28 * penaltyScale
+    + h.transientFailures * 7 * penaltyScale
+    + h.rateLimits * 14 * penaltyScale
+    + h.timeouts * 9 * penaltyScale
+    + h.badModelErrors * 100
+    - Math.min(h.successes, 6) * 2
+    + (h.ewmaLatencyMs ? Math.min(h.ewmaLatencyMs / 1000, 8) : 0);
+}
+
 function modelsFor(modelClass: ModelClass, preferredModel?: string): string[] {
   const base = modelClass === 'light' ? LIGHT_MODELS : STRONG_MODELS;
   const unique = [...new Set(base)];
-  if (!preferredModel || !unique.includes(preferredModel)) return unique;
-  return [preferredModel, ...unique.filter((m) => m !== preferredModel)];
+  const ordered = unique
+    .map((model, index) => ({ model, index, score: modelScore(model, index) }))
+    .sort((a, b) => a.score - b.score || a.index - b.index)
+    .map((x) => x.model);
+  if (!preferredModel || !unique.includes(preferredModel)) return ordered;
+  return [preferredModel, ...ordered.filter((m) => m !== preferredModel)];
+}
+
+function extractRetryAfterMs(e: any): number | null {
+  const direct = Number(e?.retryAfterMs || e?.retryAfter || e?.response?.headers?.['retry-after']);
+  if (Number.isFinite(direct) && direct > 0) {
+    return direct < 1000 ? direct * 1000 : direct;
+  }
+  const text = String(e?.message || e || '');
+  const retryDelay = text.match(/retryDelay\"?\s*[:=]\s*\"?(\d+(?:\.\d+)?)s/i);
+  if (retryDelay) return Math.round(Number(retryDelay[1]) * 1000);
+  const retryAfter = text.match(/retry[- ]after\s*[:=]?\s*(\d+(?:\.\d+)?)/i);
+  if (retryAfter) return Math.round(Number(retryAfter[1]) * 1000);
+  return null;
+}
+
+function jitter(minMs: number, maxMs: number): number {
+  return Math.floor(minMs + Math.random() * Math.max(1, maxMs - minMs));
+}
+
+function transientPauseMs(e: any, consecutiveTransientFailures: number): number {
+  const status = geminiStatus(e);
+  const serverDelay = status === 429 ? extractRetryAfterMs(e) : null;
+  if (serverDelay !== null) return Math.min(Math.max(serverDelay, 1000), 15000);
+  if (status === 429 || isGeminiRateLimitError(e)) {
+    const exp = Math.min(BACKOFF_429_MAX_MS, BACKOFF_429_MIN_MS * Math.pow(2, Math.max(0, consecutiveTransientFailures - 1)));
+    return jitter(BACKOFF_429_MIN_MS, exp + 1);
+  }
+  const exp = Math.min(BACKOFF_503_MAX_MS, BACKOFF_503_MIN_MS * Math.pow(2, Math.max(0, consecutiveTransientFailures - 1)));
+  return jitter(BACKOFF_503_MIN_MS, exp + 1);
 }
 
 function byokFromRequest(req: express.Request): string | undefined {
@@ -432,8 +537,9 @@ async function generate(
   let lastErr: Error | null = null;
   let sawTransient = false;
   let lastTransientErr: Error | null = null;
-  let responses = 0;        // model responses received for this request (INFRA-01 budget)
-  let formatFailures = 0;   // unusable answers: bad JSON or numbers outside the input
+  let attempts = 0;         // actual upstream model calls made for this request
+  let formatFailures = 0;   // unusable answers: bad JSON
+  let transientFailures = 0;
   let repairHint = '';
   // PERF-01: input size over all model responses of this request (service data, not shown to the user)
   let promptChars = 0;
@@ -441,23 +547,36 @@ async function generate(
   let outputTokens: number | undefined;
   const ownKey = Boolean(byokKey);   // the user's own key never uses the server's daily cap
 
-  for (let round = 0; round < LLM_ROUNDS; round++) {
+  // One pass through the adaptive queue is normally enough. A second pass is allowed
+  // only when the first pass exhausted because of transient failures and time remains.
+  for (let round = 0; round < 2; round++) {
+    const orderedModels = modelsFor(modelClass, preferredModel).slice(startModelIndex);
     const now = Date.now();
-    const candidates = round === 0
-      ? models.filter((m) => (modelCooldownUntil.get(m) || 0) <= now)
-      : models.filter((m) => (modelCooldownUntil.get(m) || 0) - now < MODEL_COOLDOWN_BAD_MS / 2);
-    const chain = (candidates.length ? candidates : models).slice(startModelIndex);
+    const ready = orderedModels.filter((m) => (healthForModel(m).cooldownUntil || 0) <= now);
+    // If every model is in a circuit-breaker cooldown, do not immediately hammer one
+    // again. The caller will receive the safe fallback instead.
+    if (!ready.length) break;
+    const chain = ready;
 
     for (let localIndex = 0; localIndex < chain.length; localIndex++) {
       const model = chain[localIndex];
       const globalIndex = models.indexOf(model);
       const elapsed = Date.now() - t0;
       if (elapsed >= LLM_TOTAL_DEADLINE_MS) break;
+      if ((budget ? budget.used : attempts) >= MAX_MODEL_CALLS) break;
+
+      // Count attempts before the network call. A 503/429 still consumes an upstream
+      // request opportunity, so it must not allow us to bypass MAX_MODEL_CALLS.
+      if (!ownKey && globalDayCount >= DAILY_CALL_CAP) throw new GeminiQuotaError();
+      attempts++;
+      if (budget) budget.used++;
+      if (!ownKey) globalDayCount++;
+
       const ctrl = new AbortController();
-      const timeout = setTimeout(() => ctrl.abort(), Math.min(LLM_PER_CALL_TIMEOUT_MS, LLM_TOTAL_DEADLINE_MS - elapsed));
+      const timeoutMs = Math.min(LLM_PER_CALL_TIMEOUT_MS, Math.max(1000, LLM_TOTAL_DEADLINE_MS - elapsed));
+      const timeout = setTimeout(() => ctrl.abort(), timeoutMs);
+      const callStarted = Date.now();
       try {
-        if (!ownKey && globalDayCount >= DAILY_CALL_CAP) throw new GeminiQuotaError();
-        if ((budget ? budget.used : responses) >= MAX_MODEL_CALLS) throw new GeminiFormatError('The AI call limit for one request was reached. Please try again.');
         const contents = repairHint ? `${prompt}${repairHint}` : prompt;
         const r = await client.models.generateContent({
           model,
@@ -469,9 +588,7 @@ async function generate(
             abortSignal: ctrl.signal,
           },
         });
-        responses++;
-        if (budget) budget.used++;
-        // PERF-01: characters sent (system instruction + prompt) and, when the API returns them, token counts
+        const latencyMs = Date.now() - callStarted;
         const sentChars = BASE_SYSTEM.length + contents.length;
         const um: any = (r as any).usageMetadata;
         const inTok = Number.isFinite(um?.promptTokenCount) ? Number(um.promptTokenCount) : undefined;
@@ -479,14 +596,9 @@ async function generate(
         promptChars += sentChars;
         if (inTok !== undefined) inputTokens = (inputTokens || 0) + inTok;
         if (outTok !== undefined) outputTokens = (outputTokens || 0) + outTok;
-        console.info(JSON.stringify({ type: 'llm_usage', model, stage, promptChars: sentChars, inputTokens: inTok, outputTokens: outTok }));
+        console.info(JSON.stringify({ type: 'llm_usage', model, stage, promptChars: sentChars, inputTokens: inTok, outputTokens: outTok, latencyMs }));
         if (!r.text) throw new Error('Empty AI response');
-        if (!ownKey) globalDayCount++;
 
-        // A valid JSON response must not be discarded solely because the model
-        // expressed a derived calculation in a form the validator did not recognize.
-        // Keep numeric grounding as a diagnostic warning; this prevents a valid
-        // conversation from being turned into a transport failure.
         let problem = '';
         let parsed: unknown;
         const structuralAllowed = stage === 'premortem' ? Array.from({ length: 13 }, (_, i) => i + 12) : [];
@@ -508,11 +620,10 @@ async function generate(
           repairHint = '\n\nPREVIOUS RESPONSE was not valid JSON. Reply with one valid JSON object only.';
           continue;
         }
-        modelCooldownUntil.delete(model);
+        noteModelSuccess(model, latencyMs);
         return {
           data: parsed,
-          meta: { model, fallback: globalIndex > 0, durationMs: Date.now() - t0, stage, calls: responses,
-            // the dialog must never silently run on a lightweight model: flag it in meta
+          meta: { model, fallback: globalIndex > 0, durationMs: Date.now() - t0, stage, calls: attempts,
             lightFallback: modelClass === 'strong' && isLightModel(model),
             promptChars, ...(inputTokens !== undefined ? { inputTokens } : {}), ...(outputTokens !== undefined ? { outputTokens } : {}) },
         };
@@ -521,14 +632,19 @@ async function generate(
         if (isGeminiQuotaError(e)) throw new GeminiQuotaError();
         lastErr = e instanceof Error ? e : new Error(String(e));
         const msg = lastErr.message || '';
+        const status = geminiStatus(e);
+        const timedOut = ctrl.signal.aborted || /abort|timed? ?out|deadline_exceeded/i.test(msg);
         if (isBadModelError(e)) {
-          modelCooldownUntil.set(model, Date.now() + MODEL_COOLDOWN_BAD_MS);
+          noteModelFailure(model, 'bad');
           console.warn(JSON.stringify({ type: 'llm_skip', model, stage, reason: msg.slice(0, 120) }));
-        } else if (isGeminiRateLimitError(e) || isTransientGeminiError(e)) {
+        } else if (isGeminiRateLimitError(e) || isTransientGeminiError(e) || timedOut) {
           sawTransient = true;
           lastTransientErr = lastErr;
-          modelCooldownUntil.set(model, Date.now() + MODEL_COOLDOWN_TRANSIENT_MS);
-          console.warn(JSON.stringify({ type: 'llm_retry', model, stage, reason: msg.slice(0, 120) }));
+          transientFailures++;
+          noteModelFailure(model, timedOut ? 'timeout' : (status === 429 ? '429' : '503'));
+          const pause = transientPauseMs(e, transientFailures);
+          console.warn(JSON.stringify({ type: 'llm_retry', model, stage, status: status || undefined, pauseMs: pause, reason: msg.slice(0, 180) }));
+          if (Date.now() - t0 + pause < LLM_TOTAL_DEADLINE_MS && localIndex < chain.length - 1) await sleep(pause);
         } else {
           console.warn(JSON.stringify({ type: 'llm_error', model, stage, reason: msg.slice(0, 120) }));
         }
@@ -536,8 +652,14 @@ async function generate(
         clearTimeout(timeout);
       }
     }
-    if (Date.now() - t0 >= LLM_TOTAL_DEADLINE_MS) break;
-    if (round < LLM_ROUNDS - 1) await sleep(LLM_ROUND_PAUSE_MS);
+    if (Date.now() - t0 >= LLM_TOTAL_DEADLINE_MS || (budget ? budget.used : attempts) >= MAX_MODEL_CALLS) break;
+    if (!sawTransient || round === 1) break;
+    // Do not immediately hammer the same pool after a full transient pass. A short
+    // jittered pause lets temporary capacity spikes settle without making the UI wait
+    // for a long retry cycle.
+    const pause = jitter(900, 1600);
+    if (Date.now() - t0 + pause >= LLM_TOTAL_DEADLINE_MS) break;
+    await sleep(pause);
   }
 
   if (sawTransient) {
