@@ -1,3 +1,4 @@
+import { APP_VERSION } from '../config';
 /** .ics calendar file — TZ B.5 */
 
 function escapeIcs(text: string): string {
@@ -31,7 +32,7 @@ export interface IcsEvent {
   summary: string;
 }
 
-export function buildIcs(events: IcsEvent[], prodId = '-//Bifurcation Engine//v13//EN'): string {
+export function buildIcs(events: IcsEvent[], prodId = `-//Bifurcation Engine//v${APP_VERSION}//EN`): string {
   const now = new Date()
     .toISOString()
     .replace(/[-:]/g, '')
