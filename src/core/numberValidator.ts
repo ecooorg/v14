@@ -75,6 +75,59 @@ export function collectAllowedFromInput(input: string, extraAllowed: number[] = 
   return allowed;
 }
 
+
+const GENERIC_COUNT_NOUNS = new Set([
+  // English: model-generated structure, not user-specific measurements.
+  'option', 'options', 'step', 'steps', 'factor', 'factors', 'point', 'points',
+  'question', 'questions', 'reason', 'reasons', 'example', 'examples', 'criterion', 'criteria',
+  'branch', 'branches', 'path', 'paths', 'idea', 'ideas', 'item', 'items', 'way', 'ways',
+  // Russian: generic structure of an analysis/recommendation.
+  'вариант', 'варианта', 'вариантов', 'шаг', 'шага', 'шагов', 'фактор', 'фактора', 'факторов',
+  'пункт', 'пункта', 'пунктов', 'вопрос', 'вопроса', 'вопросов', 'причина', 'причины', 'причин',
+  'пример', 'примера', 'примеров', 'критерий', 'критерия', 'критериев', 'ветка', 'ветки', 'веток',
+  'путь', 'пути', 'путей', 'идея', 'идеи', 'идей', 'способ', 'способа', 'способов', 'условие', 'условия', 'условий',
+]);
+
+const FACT_UNITS = new Set([
+  // Time / duration / deadlines.
+  'day', 'days', 'week', 'weeks', 'month', 'months', 'year', 'years', 'hour', 'hours', 'minute', 'minutes',
+  'день', 'дня', 'дней', 'неделя', 'недели', 'недель', 'месяц', 'месяца', 'месяцев', 'год', 'года', 'лет',
+  'час', 'часа', 'часов', 'минута', 'минуты', 'минут',
+  // Money / quantities / rates.
+  'percent', 'percentage', 'eur', 'euro', 'euros', 'usd', 'dollar', 'dollars',
+  '%', 'евро', 'доллар', 'доллара', 'долларов', 'рубль', 'рубля', 'рублей',
+]);
+
+function normalizedWords(text: string): string[] {
+  return text.toLowerCase().match(/[a-z]+|[а-яё]+/giu) || [];
+}
+
+function isGenericWordNumberContext(text: string, value: string): boolean {
+  const words = normalizedWords(text);
+  const n = Number(value);
+  if (!Number.isFinite(n)) return false;
+  // A short generic count such as "2–3 factors" / "three options" is
+  // structural prose, not a claim about the user's situation. Numeric facts
+  // with a unit ("3 months", "70 percent") remain strictly validated below.
+  for (let i = 0; i < words.length; i++) {
+    const parsed = parseWordSequence([words[i]]);
+    if (parsed !== n) continue;
+    const next = words[i + 1];
+    if (next && GENERIC_COUNT_NOUNS.has(next)) return true;
+  }
+  return false;
+}
+
+function isGenericNumericContext(text: string, start: number, end: number): boolean {
+  const before = text.slice(Math.max(0, start - 3), start);
+  const after = text.slice(end, Math.min(text.length, end + 32));
+  // Ordered/list labels: "1." / "2)" / "3:".
+  if (/^\s*[.) :]/.test(after) && /(?:^|\n)\s*$/.test(before)) return true;
+  // Generic model-generated structure: "2–3 factors", "3 options", etc.
+  const m = after.match(/^\s*(?:[-–—]\s*\d+\s*)?([a-zа-яё]+)/iu);
+  return !!m && GENERIC_COUNT_NOUNS.has(m[1].toLowerCase());
+}
+
 export function validateNumbers(out: string, input: string, derived: string[] = [], extraAllowed: number[] = []): string[] {
   const allowed = collectAllowedFromInput(input, extraAllowed);
   for (const d of derived) allowed.add(String(d).replace(',', '.'));
@@ -82,14 +135,31 @@ export function validateNumbers(out: string, input: string, derived: string[] = 
   const idLike = new Set<string>();
   for (const m of out.matchAll(/\b(?:obj|hyp|n|exp|c|id)[-_]?(\d+)\b/gi)) idLike.add(m[1]);
 
-  const bad = extractNums(out).filter((n) => {
-    if (allowed.has(n)) return false;
-    if (n.endsWith('%') && allowed.has(n.slice(0, -1))) return false;
-    if (idLike.has(n)) return false;
-    return true;
-  });
+  const bad: string[] = [];
+  for (const m of out.matchAll(/(?<![\p{L}_])[-+]?\d+(?:[.,]\d+)?%?/gu)) {
+    const n = m[0].replace(',', '.');
+    if (allowed.has(n)) continue;
+    if (n.endsWith('%') && allowed.has(n.slice(0, -1))) continue;
+    if (idLike.has(n)) continue;
+    if (isGenericNumericContext(out, m.index ?? 0, (m.index ?? 0) + m[0].length)) continue;
+    bad.push(n);
+  }
 
+  // Word numerals are only strict when they participate in a factual unit
+  // such as "three months" or "seventy percent". Standalone generic counts
+  // such as "two options" are structural and should not make an otherwise
+  // valid answer unusable.
   const allowedWord = new Set(allowed);
-  const wordNums = expandWordNumerals(out).filter((n) => !allowedWord.has(n));
-  return [...bad, ...wordNums.map((n) => `word:${n}`)];
+  const wordNums: string[] = [];
+  const tokens = normalizedWords(out);
+  for (let i = 0; i < tokens.length; i++) {
+    const parsed = parseWordSequence([tokens[i]]);
+    if (parsed === null) continue;
+    const value = String(parsed);
+    if (allowedWord.has(value)) continue;
+    const next = tokens[i + 1];
+    if (next && GENERIC_COUNT_NOUNS.has(next)) continue;
+    if (next && FACT_UNITS.has(next)) wordNums.push(`word:${value}`);
+  }
+  return [...bad, ...wordNums];
 }
