@@ -2,6 +2,7 @@ import React, { Component, ErrorInfo, useEffect, useMemo, useState, useCallback,
 import {
   AlertCircle, ArrowLeft, ArrowRight, BrainCircuit, Check, CircleHelp,
   Download, FlaskConical, KeyRound, Lock, Plus, ShieldAlert, Trash2, Upload,
+  Cloud, CloudUpload, History as HistoryIcon, MoreHorizontal, SlidersHorizontal,
 } from 'lucide-react';
 import {
   Decision, emptyDecision, STAGES, LOOPS, Step, Option, ExperimentCard,
@@ -15,6 +16,9 @@ import {
 import { exportDecisionJson, exportAllJson, downloadBlob, parseImportedJson } from './utils/exportZip';
 import { DISTRESS_MARKERS, SUPPORT_CONTACTS, hasDistressMarker, findDistressInTexts } from './config/support';
 import { FEATURES, APP_VERSION } from './config';
+import { exportFileName } from './utils/exportName';
+import { useDrive } from './hooks/useDrive';
+import { HistoryPanel } from './components/HistoryPanel';
 import { en } from './i18n/en';
 import { triage, TRIAGE_OUTCOME_TEXT, TRIAGE_OUTCOME_LABEL } from './core/triage';
 import { evpi, evpiRange, evpiVerdict, validateEvpiInput } from './core/evpi';
@@ -57,54 +61,6 @@ async function loginWithPassword(password: string) {
   if (!r.ok || !j.success) throw new Error(j.error || 'Invalid password');
 }
 
-async function loadDriveToken(): Promise<string> {
-  const clientId = (import.meta as any).env?.VITE_GOOGLE_CLIENT_ID || '';
-  if (!clientId) throw new Error('Google Drive is not configured (VITE_GOOGLE_CLIENT_ID is missing).');
-  if (!(window as any).google) {
-    await new Promise<void>((resolve, reject) => {
-      const script = document.createElement('script');
-      script.src = 'https://accounts.google.com/gsi/client'; script.async = true;
-      script.onload = () => resolve(); script.onerror = () => reject(new Error('Google authorization library failed to load.'));
-      document.head.appendChild(script);
-    });
-  }
-  return new Promise((resolve, reject) => {
-    const client = (window as any).google.accounts.oauth2.initTokenClient({
-      client_id: clientId,
-      scope: 'https://www.googleapis.com/auth/drive.appdata',
-      callback: (r: any) => r?.access_token ? resolve(r.access_token) : reject(new Error(r?.error || 'Google authorization was denied.')),
-    });
-    client.requestAccessToken();
-  });
-}
-
-async function driveFind(token: string): Promise<string | null> {
-  const q = encodeURIComponent("name='bifurcation-v13-library.json' and trashed=false");
-  const r = await fetch(`https://www.googleapis.com/drive/v3/files?spaces=appDataFolder&q=${q}&fields=files(id,name,modifiedTime)`, {headers:{Authorization:`Bearer ${token}`}});
-  if (!r.ok) throw new Error('Could not read Google Drive.');
-  const j = await r.json(); return j.files?.[0]?.id || null;
-}
-
-async function driveRead(token: string, id: string): Promise<Decision[]> {
-  const r = await fetch(`https://www.googleapis.com/drive/v3/files/${id}?alt=media`, {headers:{Authorization:`Bearer ${token}`}});
-  if (!r.ok) throw new Error('Could not read the saved library from Google Drive.');
-  const j = await r.json(); return Array.isArray(j) ? j : (Array.isArray(j.decisions) ? j.decisions : []);
-}
-
-async function driveWrite(token: string, decisions: Decision[], id?: string): Promise<string> {
-  const metadata: any = {name:'bifurcation-v13-library.json', mimeType:'application/json'};
-  if (!id) metadata.parents=['appDataFolder'];
-  const body = JSON.stringify({version:13, updatedAt:Date.now(), decisions});
-  const form = new FormData();
-  form.append('metadata', new Blob([JSON.stringify(metadata)], {type:'application/json'}));
-  form.append('file', new Blob([body], {type:'application/json'}));
-  const url = id ? `https://www.googleapis.com/upload/drive/v3/files/${id}?uploadType=multipart` : 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart';
-  const r = await fetch(url, {method:id?'PATCH':'POST', headers:{Authorization:`Bearer ${token}`}, body:form});
-  if (!r.ok) throw new Error('Could not save the library to Google Drive.');
-  return id || (await r.json()).id;
-}
-
-
 // --- Error boundary ---
 class ErrorBoundary extends Component<
   { children: React.ReactNode; label?: string },
@@ -139,6 +95,12 @@ class ErrorBoundary extends Component<
 export default function App() {
   const [decisions, setDecisions] = useState<Decision[]>(() => getStoredDecisions());
   const [activeId, setActiveId] = useState(() => getActiveDecisionId());
+  const drive = useDrive<Decision>(decisions, setDecisions);
+  const [showHistory, setShowHistory] = useState(false);
+  const [serverVersion, setServerVersion] = useState('');
+  const historyAvailable = useMemo(() => {
+    try { localStorage.setItem('be_probe', '1'); localStorage.removeItem('be_probe'); return true; } catch { return false; }
+  }, []);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
@@ -151,10 +113,6 @@ export default function App() {
   const [password, setPassword] = useState('');
   const [authError, setAuthError] = useState('');
   const [authRequired, setAuthRequired] = useState(false);
-  const [driveToken, setDriveToken] = useState<string | null>(() => { try { return sessionStorage.getItem('be_v13_drive_token'); } catch { return null; } });
-  const [driveId, setDriveId] = useState<string | null>(() => { try { return sessionStorage.getItem('be_v13_drive_file'); } catch { return null; } });
-  const [driveBusy, setDriveBusy] = useState(false);
-  const [driveMessage, setDriveMessage] = useState('');
   const [showGoogleAI, setShowGoogleAI] = useState(false);
   const [geminiKey, setGeminiKey] = useState(() => { try { return localStorage.getItem('bifurcation_gemini_key_v15') || ''; } catch { return ''; } });
   const [geminiModel, setGeminiModel] = useState(() => { try { return localStorage.getItem('bifurcation_gemini_model_v15') || 'gemini-3.6-flash'; } catch { return 'gemini-3.6-flash'; } });
@@ -162,6 +120,10 @@ export default function App() {
 
   useEffect(() => {
     sessionStatus().then(s => { setAuthenticated(s.authenticated); setAuthRequired(s.required); setAuthChecked(true); }).catch(() => { setAuthChecked(true); setAuthRequired(false); setAuthenticated(true); });
+  }, []);
+
+  useEffect(() => {
+    fetch('/api/health').then((r) => r.json()).then((j) => setServerVersion(String(j?.version || ''))).catch(() => {});
   }, []);
 
   async function refreshAiHealth() {
@@ -178,15 +140,6 @@ export default function App() {
     setShowGoogleAI(false);
     setMessage('Google AI settings saved.');
   }
-
-  useEffect(() => {
-    if (driveToken) { try { sessionStorage.setItem('be_v13_drive_token', driveToken); } catch {} }
-    else { try { sessionStorage.removeItem('be_v13_drive_token'); } catch {} }
-  }, [driveToken]);
-
-  useEffect(() => {
-    if (driveId) { try { sessionStorage.setItem('be_v13_drive_file', driveId); } catch {} }
-  }, [driveId]);
 
   const active = useMemo(
     () => decisions.find((d) => d.id === activeId) || decisions[0] || null,
@@ -257,28 +210,6 @@ export default function App() {
     );
   }
 
-  async function connectDrive() {
-    setDriveBusy(true); setDriveMessage('');
-    try {
-      const token = await loadDriveToken();
-      setDriveToken(token);
-      let id = await driveFind(token);
-      if (id) {
-        const remote = await driveRead(token, id);
-        if (remote.length) { setDecisions(remote); setActiveId(remote[0]?.id || ''); }
-      } else { id = await driveWrite(token, decisions); }
-      setDriveId(id); setDriveMessage('Google Drive connected.');
-    } catch (e:any) { setDriveMessage(e.message || 'Google Drive connection failed.'); }
-    finally { setDriveBusy(false); }
-  }
-
-  async function syncDrive() {
-    if (!driveToken) return;
-    setDriveBusy(true); setDriveMessage('');
-    try { const id = await driveWrite(driveToken, decisions, driveId || undefined); setDriveId(id); setDriveMessage('Saved to Google Drive.'); }
-    catch (e:any) { setDriveMessage(e.message || 'Google Drive save failed.'); } finally { setDriveBusy(false); }
-  }
-
   // --- Privacy / about gate ---
   if (!privacy) {
     return (
@@ -317,7 +248,10 @@ export default function App() {
           <div className="panel" style={{ maxWidth: 620, textAlign: 'left' }}>
             <h2><KeyRound size={18} /> Google AI</h2>
             <p style={{ color: '#8ea2b8' }}>
-              This is the v15 connection layer only. The v13 decision method remains unchanged.
+              Connection settings for the Google AI model. They do not change how decisions are analysed.
+            </p>
+            <p style={{ color: '#8ea2b8', fontSize: 13 }}>
+              Your key is stored only in this browser and is sent to this app's server with each request so it can call Google on your behalf. The server does not save it and does not write it to logs.
             </p>
             <label style={{ display: 'block', marginTop: 16 }}>Gemini API key (optional)</label>
             <input aria-label="Gemini API key" className="input credential-input" type="password" value={geminiKey} onChange={e => setGeminiKey(e.target.value)} placeholder="AIza..." style={{ width: '100%', marginTop: 8 }} />
@@ -349,19 +283,32 @@ export default function App() {
     );
   }
 
+  const historyPanel = showHistory ? (
+    <HistoryPanel items={decisions} activeId={active?.id || ''} isOnDrive={drive.isOnDrive}
+      onSelect={(id) => { setActiveId(id); setShowHistory(false); }} onClose={() => setShowHistory(false)} />
+  ) : null;
+  const versionLine = (
+    <div style={{ textAlign: 'center', fontSize: 12, color: '#6b7f94', padding: '8px 0 14px' }}>
+      v{APP_VERSION}{serverVersion && serverVersion !== APP_VERSION ? ` · server v${serverVersion}` : ''}
+    </div>
+  );
+
   if (!active) {
     return (
       <div className="shell">
+        {historyPanel}
         <Header
           onNew={createNew}
           onExportAll={() =>
-            downloadBlob(exportAllJson(decisions), `bifurcation_v11_${Date.now()}.json`)
+            downloadBlob(exportAllJson(decisions), exportFileName())
           }
-          onDrive={connectDrive}
+          onDrive={drive.onButton}
           onGoogleAI={openGoogleAI}
-          onDriveSync={driveToken ? syncDrive : undefined}
-          driveBusy={driveBusy}
-          driveMessage={driveMessage}
+          driveConnected={drive.connected}
+          driveBusy={drive.busy}
+          driveMessage={drive.message}
+        onHistory={() => setShowHistory(true)}
+        historyAvailable={historyAvailable}
           onImport={(file) => {
             const reader = new FileReader();
             reader.onload = () => {
@@ -404,6 +351,7 @@ export default function App() {
             </div>
           )}
         </div>
+        {versionLine}
       </div>
     );
   }
@@ -414,19 +362,22 @@ export default function App() {
 
   return (
     <div className="shell">
+      {historyPanel}
       <Header
         onNew={createNew}
         onExport={() =>
           downloadBlob(exportDecisionJson(d), `${d.title.slice(0, 40) || d.id}.json`)
         }
         onExportAll={() =>
-          downloadBlob(exportAllJson(decisions), `bifurcation_v11_${Date.now()}.json`)
+          downloadBlob(exportAllJson(decisions), exportFileName())
         }
-        onDrive={connectDrive}
+        onDrive={drive.onButton}
         onGoogleAI={openGoogleAI}
-        onDriveSync={driveToken ? syncDrive : undefined}
-        driveBusy={driveBusy}
-        driveMessage={driveMessage}
+          driveConnected={drive.connected}
+        driveBusy={drive.busy}
+        driveMessage={drive.message}
+        onHistory={() => setShowHistory(true)}
+        historyAvailable={historyAvailable}
         onImport={(file) => {
           const reader = new FileReader();
           reader.onload = () => {
@@ -481,7 +432,7 @@ export default function App() {
               <div
                 key={l.id}
                 style={{
-                  fontSize: 10,
+                  fontSize: 11,
                   color: l.steps.includes(d.step) ? '#dcecff' : '#53687d',
                   marginBottom: 4,
                 }}
@@ -559,6 +510,7 @@ export default function App() {
       {showBrief && (
         <BriefPanel d={d} onClose={() => setShowBrief(false)} update={update} />
       )}
+      {versionLine}
     </div>
   );
 }
@@ -574,31 +526,54 @@ function Header(props: {
   expertMode?: boolean;
   onToggleExpert?: () => void;
   onDrive?: () => void;
-  onDriveSync?: () => void;
+  driveConnected?: boolean;
   driveBusy?: boolean;
   driveMessage?: string;
   onGoogleAI?: () => void;
+  onHistory?: () => void;
+  historyAvailable?: boolean;
 }) {
+  const [moreOpen, setMoreOpen] = useState(false);
+  const driveLabel = props.driveBusy ? 'Saving…' : props.driveConnected ? 'Save to Drive' : 'Connect Drive';
   return (
-    <header className="header" style={{ justifyContent: 'flex-end', minHeight: 52 }}>
+    <header className="header" style={{ justifyContent: 'flex-end' }}>
       <div className="header-actions">
+        {/* Primary actions: always visible, always labelled */}
+        {props.onToggleExpert && (
+          <button className="ghost" onClick={props.onToggleExpert}>
+            <SlidersHorizontal size={14} /> {props.expertMode ? 'Normal mode' : 'Method'}
+          </button>
+        )}
         <button className="ghost" onClick={props.onNew}><Plus size={14} /> New</button>
-        {props.onToggleExpert && <button className="ghost" onClick={props.onToggleExpert}>{props.expertMode ? 'Normal mode' : 'Method'}</button>}
-        {props.expertMode && props.onBrief && <button className="ghost" onClick={props.onBrief}>Brief</button>}
-        {props.expertMode && props.onExport && <button className="ghost" onClick={props.onExport}><Download size={14} /> Export</button>}
-        {props.expertMode && <button className="ghost" onClick={props.onExportAll}><Download size={14} /> Export all</button>}
-        {props.expertMode && <label className="ghost" style={{ cursor: 'pointer' }}>
-          <Upload size={14} /> Import
-          <input type="file" accept="application/json" hidden onChange={(e) => {
-            const f = e.target.files?.[0];
-            if (f) props.onImport(f);
-          }} />
-        </label>}
-        {props.onDrive && <button className="ghost" onClick={props.onDrive} disabled={props.driveBusy}>{props.driveBusy ? 'Drive…' : 'Google Drive'}</button>}
-        {props.onGoogleAI && <button className="ghost" onClick={props.onGoogleAI}><KeyRound size={14} /> Google AI</button>}
-        {props.onDriveSync && <button className="ghost" onClick={props.onDriveSync} disabled={props.driveBusy}>Save Drive</button>}
-        {props.driveMessage && <span style={{fontSize:12,color:'#8ea2b8'}}>{props.driveMessage}</span>}
-        {props.expertMode && props.onDelete && <button className="ghost danger" onClick={props.onDelete}><Trash2 size={14} /></button>}
+        {props.onDrive && (
+          <button className="ghost" onClick={props.onDrive} disabled={props.driveBusy}>
+            {props.driveConnected ? <CloudUpload size={14} /> : <Cloud size={14} />} {driveLabel}
+          </button>
+        )}
+        {props.onHistory && (
+          props.historyAvailable === false
+            ? <button className="ghost" disabled title="This browser cannot store data (private mode?)"><HistoryIcon size={14} /> History not saved</button>
+            : <button className="ghost" onClick={props.onHistory}><HistoryIcon size={14} /> History</button>
+        )}
+        <button className="ghost hdr-more-btn" aria-expanded={moreOpen} onClick={() => setMoreOpen((v) => !v)}>
+          <MoreHorizontal size={14} /> More
+        </button>
+        {/* Secondary actions: inline on wide screens, in the More menu on narrow ones */}
+        <div className={`hdr-secondary${moreOpen ? ' open' : ''}`}>
+          {props.expertMode && props.onBrief && <button className="ghost" onClick={props.onBrief}>Brief</button>}
+          {props.expertMode && props.onExport && <button className="ghost" onClick={props.onExport}><Download size={14} /> Export</button>}
+          {props.expertMode && <button className="ghost" onClick={props.onExportAll}><Download size={14} /> Export all</button>}
+          {props.expertMode && <label className="ghost" style={{ cursor: 'pointer' }}>
+            <Upload size={14} /> Import
+            <input type="file" accept="application/json" hidden onChange={(e) => {
+              const f = e.target.files?.[0];
+              if (f) props.onImport(f);
+            }} />
+          </label>}
+          {props.onGoogleAI && <button className="ghost" onClick={props.onGoogleAI}><KeyRound size={14} /> Google AI</button>}
+          {props.expertMode && props.onDelete && <button className="ghost danger" aria-label="Delete" onClick={props.onDelete}><Trash2 size={14} /></button>}
+        </div>
+        {props.driveMessage && <span className="hdr-msg">{props.driveMessage}</span>}
       </div>
     </header>
   );
@@ -1375,6 +1350,15 @@ function TestScreen({
   );
 }
 
+function Field({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
+  return (
+    <label className="field">
+      <span>{label}</span>
+      <input value={value} onChange={(e) => onChange(e.target.value)} />
+    </label>
+  );
+}
+
 function ExperimentCardEditor({
   exp,
   d,
@@ -1978,8 +1962,8 @@ function LearnScreen({
         j.confidence !== undefined
     )
     .map((j) => ({
-      confidence: (j.confidence as number) > 1 ? (j.confidence as number) / 100 : (j.confidence as number),
-      outcome: j.outcome!,
+      p: (j.confidence as number) > 1 ? (j.confidence as number) / 100 : (j.confidence as number),
+      outcome: (j.outcome ? 1 : 0) as 0 | 1,
     }));
   const brier = brierEntries.length ? brierScore(brierEntries) : null;
 
@@ -2242,7 +2226,7 @@ function BriefPanel({
       <button className="ghost" onClick={onClose}>
         Close
       </button>
-      <pre style={{ fontSize: 11, whiteSpace: 'pre-wrap' }}>
+      <pre style={{ fontSize: 12, whiteSpace: 'pre-wrap' }}>
         {JSON.stringify(d.brief, null, 2)}
       </pre>
       {d.brief.reviewDates?.length > 0 && (
