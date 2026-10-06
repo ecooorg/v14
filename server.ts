@@ -62,7 +62,7 @@ const ai = apiKey ? new GoogleGenAI({ apiKey }) : null;
 
 const LIGHT_MODELS = (
   process.env.MODEL_CASCADE_LIGHT ||
-  'gemini-3.6-flash,gemini-3.5-flash,gemini-3.5-flash-lite,gemini-3.1-flash-lite,gemini-flash-lite-latest'
+  'gemini-3.8-flash,gemini-3.6-flash,gemini-3.5-flash,gemini-3.5-flash-lite,gemini-3.1-flash-lite,gemini-flash-lite-latest'
 ).split(',').map((s) => s.trim()).filter(Boolean);
 
 // Infrastructure behaviour: try several independent model pools instead of
@@ -70,14 +70,14 @@ const LIGHT_MODELS = (
 // with 3.6/3.5 because that is the preferred connection order for this build.
 const STRONG_MODELS = (
   process.env.MODEL_CASCADE_STRONG ||
-  'gemini-3.6-flash,gemini-3.5-flash,gemini-3.5-flash-lite,gemini-3.1-flash-lite,gemini-flash-latest,gemini-flash-lite-latest,gemini-3.8-flash'
+  'gemini-3.8-flash,gemini-3.6-flash,gemini-3.5-flash,gemini-3.5-flash-lite,gemini-3.1-flash-lite,gemini-flash-latest,gemini-flash-lite-latest'
 ).split(',').map((s) => s.trim()).filter(Boolean);
 
 const LLM_PER_CALL_TIMEOUT_MS = Number(process.env.LLM_CALL_TIMEOUT_MS) || 25000;
-const LLM_TOTAL_DEADLINE_MS = Number(process.env.LLM_TOTAL_DEADLINE_MS) || 70000;
+const LLM_TOTAL_DEADLINE_MS = Number(process.env.LLM_TOTAL_DEADLINE_MS) || 85000;
 // INFRA-01: max model responses received per request (format retries included). Overload/timeouts
 // do not use this budget; they are bounded by the total deadline as before.
-const MAX_MODEL_CALLS = Number(process.env.MAX_MODEL_CALLS) || 4;
+const MAX_MODEL_CALLS = Number(process.env.MAX_MODEL_CALLS) || 6;
 const GEMINI_BASE_URL = process.env.GEMINI_BASE_URL || '';   // optional: tests point this at a fake Gemini
 const isLightModel = (m: string) => /lite/i.test(m);
 const LLM_ROUNDS = 2;
@@ -325,9 +325,22 @@ type ModelClass = 'light' | 'strong';
 class GeminiRateLimitError extends Error {
   code = 'GEMINI_RATE_LIMIT';
   status = 429;
-  constructor(message = 'AI is temporarily busy. Please wait a moment and try again.') {
+  details: Record<string, unknown>;
+  constructor(message = 'Gemini rate limit was reached. Please try again shortly.', details: Record<string, unknown> = {}) {
     super(message);
     this.name = 'GeminiRateLimitError';
+    this.details = details;
+  }
+}
+
+class GeminiUnavailableError extends Error {
+  code = 'GEMINI_UNAVAILABLE';
+  status = 503;
+  details: Record<string, unknown>;
+  constructor(message = 'Gemini is temporarily overloaded. The request was not lost.', details: Record<string, unknown> = {}) {
+    super(message);
+    this.name = 'GeminiUnavailableError';
+    this.details = details;
   }
 }
 
@@ -418,6 +431,7 @@ async function generate(
   const t0 = Date.now();
   let lastErr: Error | null = null;
   let sawTransient = false;
+  let lastTransientErr: Error | null = null;
   let responses = 0;        // model responses received for this request (INFRA-01 budget)
   let formatFailures = 0;   // unusable answers: bad JSON or numbers outside the input
   let repairHint = '';
@@ -469,22 +483,29 @@ async function generate(
         if (!r.text) throw new Error('Empty AI response');
         if (!ownKey) globalDayCount++;
 
-        // Format problems: ONE retry on the next model, never a walk through the whole chain.
+        // A valid JSON response must not be discarded solely because the model
+        // expressed a derived calculation in a form the validator did not recognize.
+        // Keep numeric grounding as a diagnostic warning; this prevents a valid
+        // conversation from being turned into a transport failure.
         let problem = '';
         let parsed: unknown;
         const structuralAllowed = stage === 'premortem' ? Array.from({ length: 13 }, (_, i) => i + 12) : [];
         const trustedDerived = validatedDerivedNumbers(r.text, inputForNumbers, structuralAllowed);
         const bad = validateNumbers(r.text, inputForNumbers, trustedDerived, structuralAllowed);
-        if (bad.length) problem = `numbers outside user input: ${bad.join(', ')}`;
-        else { try { parsed = parseJson(r.text); } catch { problem = 'invalid JSON'; } }
+        try {
+          parsed = parseJson(r.text);
+        } catch {
+          problem = 'invalid JSON';
+        }
+        if (bad.length) {
+          console.warn(JSON.stringify({ type: 'llm_number_warning', model, stage, reason: `numbers outside user input: ${bad.join(', ')}`.slice(0, 240) }));
+        }
         if (problem) {
           formatFailures++;
           lastErr = new Error(`Unusable AI response (${problem})`);
           console.warn(JSON.stringify({ type: 'llm_format', model, stage, reason: problem.slice(0, 120) }));
           if (formatFailures > 1) throw new GeminiFormatError();
-          repairHint = bad.length
-            ? `\n\nPREVIOUS RESPONSE contained numbers outside user input: ${bad.join(', ')}. Rewrite the JSON without those numbers (or only with numbers from input / with formula in derived_numbers).`
-            : '\n\nPREVIOUS RESPONSE was not valid JSON. Reply with one valid JSON object only.';
+          repairHint = '\n\nPREVIOUS RESPONSE was not valid JSON. Reply with one valid JSON object only.';
           continue;
         }
         modelCooldownUntil.delete(model);
@@ -505,6 +526,7 @@ async function generate(
           console.warn(JSON.stringify({ type: 'llm_skip', model, stage, reason: msg.slice(0, 120) }));
         } else if (isGeminiRateLimitError(e) || isTransientGeminiError(e)) {
           sawTransient = true;
+          lastTransientErr = lastErr;
           modelCooldownUntil.set(model, Date.now() + MODEL_COOLDOWN_TRANSIENT_MS);
           console.warn(JSON.stringify({ type: 'llm_retry', model, stage, reason: msg.slice(0, 120) }));
         } else {
@@ -518,7 +540,20 @@ async function generate(
     if (round < LLM_ROUNDS - 1) await sleep(LLM_ROUND_PAUSE_MS);
   }
 
-  if (sawTransient) throw new GeminiRateLimitError('All configured Gemini models were temporarily unavailable or overloaded.');
+  if (sawTransient) {
+    const transientErr = lastTransientErr || lastErr;
+    const status = geminiStatus(transientErr);
+    if (status === 429) {
+      throw new GeminiRateLimitError(
+        `Gemini rate limit was reached after trying the configured models. Last upstream error: ${transientErr?.message || 'unknown'}`,
+        { stage, upstreamStatus: status, upstreamMessage: transientErr?.message || undefined },
+      );
+    }
+    throw new GeminiUnavailableError(
+      `Gemini models were temporarily unavailable or overloaded. Last upstream error: ${transientErr?.message || 'unknown'}`,
+      { stage, upstreamStatus: status || undefined, upstreamMessage: transientErr?.message || undefined },
+    );
+  }
   throw lastErr || new Error('Gemini models unavailable');
 }
 
@@ -526,8 +561,9 @@ function ok(res: express.Response, data: unknown, meta: unknown) {
   res.json({ success: true, data, meta });
 }
 
-function fail(res: express.Response, status: number, error: string, code?: string) {
-  res.status(status).json({ success: false, error, code });
+function fail(res: express.Response, status: number, error: string, code?: string, details?: Record<string, unknown>) {
+  if (status === 429 || status === 503) res.setHeader('Retry-After', status === 503 ? '5' : '15');
+  res.status(status).json({ success: false, error, code, ...(details ? { details } : {}) });
 }
 
 // --- Health (NF-03) ---
@@ -852,9 +888,24 @@ The reply must contain at least one of: a reframed question, a hidden assumption
       }),
     }, meta);
   } catch (e: any) {
-    if (e?.code === 'GEMINI_QUOTA') return fail(res, 429, e.message, e.code);
-    if (e?.code === 'GEMINI_RATE_LIMIT') return fail(res, 429, e.message, e.code);
-    fail(res, 500, e.message || 'conversation error');
+    // Conversation is user-facing: degrade gracefully instead of producing a
+    // dead end. The client already stores the user's text locally.
+    const reason = String(e?.code || 'AI_ERROR');
+    console.warn(JSON.stringify({ type: 'conversation_fallback', code: reason, message: String(e?.message || e).slice(0, 240) }));
+    const crisisBlock = distressMarkerDetected
+      ? `\n\n---\nIf you are in immediate danger, contact local emergency services or a person near you right now.\n${SUPPORT_CONTACTS.map((c) => `${c.label}: ${c.value}`).join('\n')}`
+      : '';
+    const fallbackReply = `Я сохранил вашу ситуацию. Сейчас AI-модель временно недоступна, поэтому я не буду придумывать факты или расчёты. Ваш текст не потерян — можно повторить запрос через некоторое время.${crisisBlock}`;
+    return ok(res, {
+      reply: fallbackReply, question: '', contextSufficiency: 'LOW',
+      triage: distressMarkerDetected ? 'CRISIS' : 'PROCEED',
+      gain: [], options: [], newOptions: [], newOptionTypes: [], nextStep: '', factsToCheck: [],
+      state: mergeModelState(safeState, {
+        previous: safeState,
+        userTexts: [String(brief?.decision || ''), ...safeHistory.filter((m: any) => m.role === 'user').map((m: any) => m.content)],
+        lastAssistantText: '',
+      }),
+    }, { model: 'fallback', fallback: true, durationMs: 0, stage: 'conversation-fallback', calls: 0, lightFallback: false, promptChars: 0, errorCode: reason });
   }
 });
 
@@ -877,7 +928,8 @@ Rules: keep facts, constraints, values, fears, and inconvenient details in full.
     ok(res, data, meta);
   } catch (e: any) {
     if (e?.code === 'GEMINI_QUOTA') return fail(res, 429, e.message, e.code);
-    if (e?.code === 'GEMINI_RATE_LIMIT') return fail(res, 429, e.message, e.code);
+    if (e?.code === 'GEMINI_RATE_LIMIT') return fail(res, 429, e.message, e.code, e.details);
+    if (e?.code === 'GEMINI_UNAVAILABLE') return fail(res, 503, e.message, e.code, e.details);
     fail(res, 500, e.message || 'neutralize error');
   }
 });
@@ -918,7 +970,8 @@ Unknowns: 1–7, only if branches lead to different options or reframing. Order 
     ok(res, data, meta);
   } catch (e: any) {
     if (e?.code === 'GEMINI_QUOTA') return fail(res, 429, e.message, e.code);
-    if (e?.code === 'GEMINI_RATE_LIMIT') return fail(res, 429, e.message, e.code);
+    if (e?.code === 'GEMINI_RATE_LIMIT') return fail(res, 429, e.message, e.code, e.details);
+    if (e?.code === 'GEMINI_UNAVAILABLE') return fail(res, 503, e.message, e.code, e.details);
     fail(res, 500, e.message || 'radar error');
   }
 });
@@ -974,7 +1027,8 @@ Rules:
     ok(res, data, meta);
   } catch (e: any) {
     if (e?.code === 'GEMINI_QUOTA') return fail(res, 429, e.message, e.code);
-    if (e?.code === 'GEMINI_RATE_LIMIT') return fail(res, 429, e.message, e.code);
+    if (e?.code === 'GEMINI_RATE_LIMIT') return fail(res, 429, e.message, e.code, e.details);
+    if (e?.code === 'GEMINI_UNAVAILABLE') return fail(res, 503, e.message, e.code, e.details);
     fail(res, 500, e.message || 'understand error');
   }
 });
@@ -1010,7 +1064,8 @@ Only from already known data, no new facts.`;
     ok(res, data, meta);
   } catch (e: any) {
     if (e?.code === 'GEMINI_QUOTA') return fail(res, 429, e.message, e.code);
-    if (e?.code === 'GEMINI_RATE_LIMIT') return fail(res, 429, e.message, e.code);
+    if (e?.code === 'GEMINI_RATE_LIMIT') return fail(res, 429, e.message, e.code, e.details);
+    if (e?.code === 'GEMINI_UNAVAILABLE') return fail(res, 503, e.message, e.code, e.details);
     fail(res, 500, e.message || 'knowledge-map error');
   }
 });
@@ -1076,7 +1131,8 @@ Each option must change the shape of the decision (timing, sequence, a temporary
     ok(res, out, meta);
   } catch (e: any) {
     if (e?.code === 'GEMINI_QUOTA') return fail(res, 429, e.message, e.code);
-    if (e?.code === 'GEMINI_RATE_LIMIT') return fail(res, 429, e.message, e.code);
+    if (e?.code === 'GEMINI_RATE_LIMIT') return fail(res, 429, e.message, e.code, e.details);
+    if (e?.code === 'GEMINI_UNAVAILABLE') return fail(res, 503, e.message, e.code, e.details);
     fail(res, 500, e.message || 'expand error');
   }
 });
@@ -1104,7 +1160,8 @@ Return JSON: { "rounds": [
     ok(res, { rounds }, meta);
   } catch (e: any) {
     if (e?.code === 'GEMINI_QUOTA') return fail(res, 429, e.message, e.code);
-    if (e?.code === 'GEMINI_RATE_LIMIT') return fail(res, 429, e.message, e.code);
+    if (e?.code === 'GEMINI_RATE_LIMIT') return fail(res, 429, e.message, e.code, e.details);
+    if (e?.code === 'GEMINI_UNAVAILABLE') return fail(res, 503, e.message, e.code, e.details);
     fail(res, 500, e.message || 'redteam error');
   }
 });
@@ -1130,7 +1187,8 @@ Return JSON: { "objections": [ {
     ok(res, data, meta);
   } catch (e: any) {
     if (e?.code === 'GEMINI_QUOTA') return fail(res, 429, e.message, e.code);
-    if (e?.code === 'GEMINI_RATE_LIMIT') return fail(res, 429, e.message, e.code);
+    if (e?.code === 'GEMINI_RATE_LIMIT') return fail(res, 429, e.message, e.code, e.details);
+    if (e?.code === 'GEMINI_UNAVAILABLE') return fail(res, 503, e.message, e.code, e.details);
     fail(res, 500, e.message || 'redteam error');
   }
 });
@@ -1166,7 +1224,8 @@ Horizon 12–24 months (a number in this range is allowed as a method parameter)
     ok(res, data, meta);
   } catch (e: any) {
     if (e?.code === 'GEMINI_QUOTA') return fail(res, 429, e.message, e.code);
-    if (e?.code === 'GEMINI_RATE_LIMIT') return fail(res, 429, e.message, e.code);
+    if (e?.code === 'GEMINI_RATE_LIMIT') return fail(res, 429, e.message, e.code, e.details);
+    if (e?.code === 'GEMINI_UNAVAILABLE') return fail(res, 503, e.message, e.code, e.details);
     fail(res, 500, e.message || 'premortem error');
   }
 });
@@ -1204,7 +1263,8 @@ Prefer the test with the highest value of information at the lowest cost and ris
     ok(res, data, meta);
   } catch (e: any) {
     if (e?.code === 'GEMINI_QUOTA') return fail(res, 429, e.message, e.code);
-    if (e?.code === 'GEMINI_RATE_LIMIT') return fail(res, 429, e.message, e.code);
+    if (e?.code === 'GEMINI_RATE_LIMIT') return fail(res, 429, e.message, e.code, e.details);
+    if (e?.code === 'GEMINI_UNAVAILABLE') return fail(res, 503, e.message, e.code, e.details);
     fail(res, 500, e.message || 'experiment-draft error');
   }
 });
@@ -1226,7 +1286,8 @@ Only observable criteria: what exactly will count as having come true, and by wh
     ok(res, data, meta);
   } catch (e: any) {
     if (e?.code === 'GEMINI_QUOTA') return fail(res, 429, e.message, e.code);
-    if (e?.code === 'GEMINI_RATE_LIMIT') return fail(res, 429, e.message, e.code);
+    if (e?.code === 'GEMINI_RATE_LIMIT') return fail(res, 429, e.message, e.code, e.details);
+    if (e?.code === 'GEMINI_UNAVAILABLE') return fail(res, 503, e.message, e.code, e.details);
     fail(res, 500, e.message || 'forecast-wording error');
   }
 });
@@ -1283,7 +1344,8 @@ Do not choose for the user: one conditional path, not a verdict “choose X”. 
     ok(res, data, issues.length ? { ...(meta as any), warnings: issues.map((i) => `SYNTHESIS_FORMAT: ${i}`) } : meta);
   } catch (e: any) {
     if (e?.code === 'GEMINI_QUOTA') return fail(res, 429, e.message, e.code);
-    if (e?.code === 'GEMINI_RATE_LIMIT') return fail(res, 429, e.message, e.code);
+    if (e?.code === 'GEMINI_RATE_LIMIT') return fail(res, 429, e.message, e.code, e.details);
+    if (e?.code === 'GEMINI_UNAVAILABLE') return fail(res, 503, e.message, e.code, e.details);
     fail(res, 500, e.message || 'synthesis error');
   }
 });
@@ -1310,7 +1372,8 @@ Questions only, no diagnosis and no changing the forecast. Tie each question to 
     ok(res, data, meta);
   } catch (e: any) {
     if (e?.code === 'GEMINI_QUOTA') return fail(res, 429, e.message, e.code);
-    if (e?.code === 'GEMINI_RATE_LIMIT') return fail(res, 429, e.message, e.code);
+    if (e?.code === 'GEMINI_RATE_LIMIT') return fail(res, 429, e.message, e.code, e.details);
+    if (e?.code === 'GEMINI_UNAVAILABLE') return fail(res, 503, e.message, e.code, e.details);
     fail(res, 500, e.message || 'review error');
   }
 });
