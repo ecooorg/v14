@@ -136,6 +136,36 @@ function isDerivedNumbersValueContext(out: string, start: number, end: number): 
   return /\"derived_numbers\"\s*:\s*\[[\s\S]*$/i.test(before) && /^(?:[\s\S]*?\})?\s*(?:,|\]|$)/.test(after);
 }
 
+function isInsideDerivedNumbers(out: string, start: number, end: number): boolean {
+  const keyRe = /\"(?:derived_numbers|derivedNumbers)\"\s*:\s*\[/gi;
+  let m: RegExpExecArray | null;
+  while ((m = keyRe.exec(out))) {
+    const arrayStart = out.indexOf('[', m.index);
+    if (arrayStart < 0 || start < arrayStart) continue;
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+    for (let i = arrayStart; i < out.length; i++) {
+      const ch = out[i];
+      if (inString) {
+        if (escaped) escaped = false;
+        else if (ch === '\\') escaped = true;
+        else if (ch === '"') inString = false;
+        continue;
+      }
+      if (ch === '"') { inString = true; continue; }
+      if (ch === '[') depth++;
+      else if (ch === ']') {
+        depth--;
+        if (depth === 0) {
+          return start >= arrayStart && end <= i + 1;
+        }
+      }
+    }
+  }
+  return false;
+}
+
 function isGenericNumericContext(text: string, start: number, end: number): boolean {
   const before = text.slice(Math.max(0, start - 3), start);
   const after = text.slice(end, Math.min(text.length, end + 32));
@@ -154,7 +184,7 @@ export function validateNumbers(out: string, input: string, derived: string[] = 
   for (const m of out.matchAll(/\b(?:obj|hyp|n|exp|c|id)[-_]?(\d+)\b/gi)) idLike.add(m[1]);
 
   const bad: string[] = [];
-  for (const m of out.matchAll(/(?<![\p{L}_])[-+]?\d+(?:[.,]\d+)?%?/gu)) {
+  for (const m of out.matchAll(/(?<![\p{L}_])[-+]?\d+(?:(?:\.\d+)|(?:,\d{1,2}(?!\d)))?%?/gu)) {
     const n = m[0].replace(',', '.');
     const start = m.index ?? 0;
     const end = start + m[0].length;
@@ -166,6 +196,9 @@ export function validateNumbers(out: string, input: string, derived: string[] = 
     if (!n.endsWith('%') && inputHasPercentValue(input, n)
         && (isPercentageContext(out, start, end) || isDerivedNumbersValueContext(out, start, end))) continue;
     if (idLike.has(n)) continue;
+    // 0/1/100 are mathematical constants, not user facts, when they occur
+    // inside a derived_numbers formula. They remain strict everywhere else.
+    if ((n === '0' || n === '1' || n === '100') && isInsideDerivedNumbers(out, start, end)) continue;
     if (isGenericNumericContext(out, start, end)) continue;
     bad.push(n);
   }
