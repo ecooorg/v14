@@ -34,6 +34,12 @@ add('numbers: Russian number words are grounded by user input', () => {
   assert.deepEqual(validateNumbers('Срок — три месяца', 'Я планирую поездку'), ['word:3']);
   assert.deepEqual(validateNumbers('Срок — двадцать три дня', 'У меня 23 дня'), []);
 });
+add('numbers: user-supplied percentage may be echoed as a bare derived value, but not as an unrelated fact', () => {
+  const input = 'Я думаю, что примерно на 50%.';
+  assert.deepEqual(validateNumbers('{\"derived_numbers\":[{\"value\":50,\"formula\":\"user estimate\"}]}', input), []);
+  assert.deepEqual(validateNumbers('Ваша оценка составляет 50%.', input), []);
+  assert.deepEqual(validateNumbers('Аренда составит 50 евро.', input), ['50']);
+});
 add('triage: crisis, values-only, overkill, method', () => {
   const base = { crisis: false, onlyValues: false, costly: false, hardToUndo: false, resolvableUnknowns: false, longHorizon: false };
   assert.equal(triage({ ...base, crisis: true }), 'CRISIS_STOP');
