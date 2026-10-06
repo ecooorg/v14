@@ -23,6 +23,12 @@ add('numbers: method scaffolding does not authorize invented user claims', () =>
   assert.deepEqual(validateNumbers('Rent for three months', 'I am considering 3 months'), []);
   assert.deepEqual(validateNumbers('A two-step test', 'I have 2 steps'), []);
 });
+add('numbers: generic structural counts are allowed, factual units remain strict', () => {
+  assert.deepEqual(validateNumbers('Рассмотрите 2–3 фактора и два варианта.', 'Я думаю о переезде.'), []);
+  assert.deepEqual(validateNumbers('Вероятность — 70%.', 'Я думаю о переезде.'), ['70%']);
+  assert.deepEqual(validateNumbers('Через 3 месяца ситуация изменится.', 'Я думаю о переезде.'), ['3']);
+  assert.deepEqual(validateNumbers('Рассмотрите три фактора.', 'Я думаю о переезде.'), []);
+});
 add('numbers: Russian number words are grounded by user input', () => {
   assert.deepEqual(validateNumbers('Срок — три месяца', 'Я планирую три месяца'), []);
   assert.deepEqual(validateNumbers('Срок — три месяца', 'Я планирую поездку'), ['word:3']);
