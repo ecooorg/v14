@@ -10,12 +10,23 @@ import { APP_VERSION } from '../src/config.ts';
 let n = 0; const tests = [];
 const add = (name, fn) => tests.push([name, fn]);
 
-add('numbers: grounded amounts/counts are allowed, invented bare numbers are reported', () => {
+add('numbers: grounded amounts/counts are allowed, invented numbers are reported', () => {
   assert.deepEqual(validateNumbers('Chance is 40%', 'I think 40% maybe'), []);
   assert.deepEqual(validateNumbers('Chance is 73%', 'I think 40% maybe'), ['73%']);
   assert.deepEqual(validateNumbers('The budget is 2000', 'My budget is 2000'), []);
   assert.deepEqual(validateNumbers('The budget is 3500', 'My budget is 2000'), ['3500']);
   assert.deepEqual(validateNumbers('About 3 options', 'I have 3 options'), []);
+});
+add('numbers: method scaffolding does not authorize invented user claims', () => {
+  assert.deepEqual(validateNumbers('Rent for three months', 'I am considering a move'), ['word:3']);
+  assert.deepEqual(validateNumbers('Rent for 3 months', 'I am considering a move'), ['3']);
+  assert.deepEqual(validateNumbers('Rent for three months', 'I am considering 3 months'), []);
+  assert.deepEqual(validateNumbers('A two-step test', 'I have 2 steps'), []);
+});
+add('numbers: Russian number words are grounded by user input', () => {
+  assert.deepEqual(validateNumbers('Срок — три месяца', 'Я планирую три месяца'), []);
+  assert.deepEqual(validateNumbers('Срок — три месяца', 'Я планирую поездку'), ['word:3']);
+  assert.deepEqual(validateNumbers('Срок — двадцать три дня', 'У меня 23 дня'), []);
 });
 add('triage: crisis, values-only, overkill, method', () => {
   const base = { crisis: false, onlyValues: false, costly: false, hardToUndo: false, resolvableUnknowns: false, longHorizon: false };
