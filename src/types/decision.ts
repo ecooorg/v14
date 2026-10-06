@@ -355,7 +355,25 @@ export interface Decision {
   thirdPersonMode?: boolean;
 }
 
-export const SCHEMA_VERSION = 11;
+/**
+ * v17 conversation state (stored per dialog in modelSuggestions.conversationState).
+ * It extends the v16 object in place: old saved states (without the new fields) are read as-is.
+ * Hypotheses are the model's guesses and are never mixed into facts.
+ */
+export interface ConversationState {
+  coreProblem?: string;
+  userConcern?: string;
+  userReasoningState?: string;
+  facts?: string[];
+  assumptions?: string[];
+  unknowns?: string[];
+  options?: string[];
+  hypotheses?: string[];
+  expectations?: string[];
+}
+
+import { SCHEMA_VERSION } from '../config';
+export { SCHEMA_VERSION };
 
 export const LOOPS = [
   { id: 1, label: 'UNDERSTAND', steps: ['BRIEF', 'UNDERSTAND'] as Step[] },
