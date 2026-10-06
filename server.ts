@@ -173,9 +173,10 @@ Forbidden: best option, recommended, winner, score, ranking, optimal, you should
 Reply only with JSON per the schema, no text outside the schema. Write every human-readable string in the language of the user's input; keep JSON keys and enum values exactly as specified in the schema.`;
 
 function evaluateDerivedFormula(formula: string, operands: number[]): number | null {
-  // Accept a small, explicitly arithmetic language only. The model may write
-  // either symbols (5000 - 1800) or plain words (5000 minus 1800). Nothing else
-  // is evaluated, and the numeric literals must match the declared operands.
+  // Accept a small, explicitly arithmetic language only. Numeric literals in
+  // the expression must be exactly the declared operands (same multiset; order
+  // in the operands array is not semantically important). This avoids false
+  // negatives when the model lists operands in a different order.
   let normalized = formula.toLowerCase()
     .replace(/,/g, '.')
     .replace(/×/g, '*').replace(/÷/g, '/')
@@ -188,9 +189,6 @@ function evaluateDerivedFormula(formula: string, operands: number[]): number | n
   const eq = normalized.indexOf('=');
   if (eq >= 0) normalized = normalized.slice(0, eq);
 
-  // Ignore an optional textual prefix such as "calc:" and find arithmetic
-  // candidates. A candidate is accepted only if it contains exactly the
-  // supplied operands in the same order.
   const candidates = normalized.match(/[0-9.()+*/\-\s]+/g) || [];
   for (const raw of candidates) {
     const expr = raw.trim();
@@ -198,7 +196,12 @@ function evaluateDerivedFormula(formula: string, operands: number[]): number | n
     if (!/^[0-9.()+*/\-\s]+$/.test(expr)) continue;
 
     const literals = expr.match(/\d+(?:\.\d+)?/g)?.map(Number) || [];
-    if (literals.length !== operands.length || literals.some((n, i) => n !== operands[i])) continue;
+    if (literals.length !== operands.length) continue;
+
+    // Compare operands as a multiset, not by order.
+    const a = [...literals].sort((x, y) => x - y);
+    const b = [...operands].sort((x, y) => x - y);
+    if (a.some((n, i) => n !== b[i])) continue;
 
     const tokenRe = /\d+(?:\.\d+)?|[()+\-*/]/g;
     const tokens = expr.match(tokenRe) || [];
@@ -253,7 +256,6 @@ function evaluateDerivedFormula(formula: string, operands: number[]): number | n
   }
   return null;
 }
-
 function validatedDerivedNumbers(out: string, input: string, extraAllowed: number[] = []): string[] {
   // A model cannot make its own number trustworthy merely by putting it in
   // derived_numbers. Every operand must be grounded in the supplied input (or
@@ -267,27 +269,33 @@ function validatedDerivedNumbers(out: string, input: string, extraAllowed: numbe
     if (!Array.isArray(list)) return [];
     const trusted: string[] = [];
     for (const d of list) {
-      if (!d || typeof d.value !== 'number' || !Number.isFinite(d.value) ||
+      if (!d || (typeof d.value !== 'number' && typeof d.value !== 'string') ||
           typeof d.formula !== 'string' || !d.formula.trim() || !Array.isArray(d.operands)) continue;
-      // Formula operands may include a tiny set of mathematical constants
-      // that are not user facts. Percentage calculations commonly need * 100.
-      // Every other operand must still come from the input or an explicitly
-      // allowed structural parameter.
+      const value = Number(String(d.value).replace(',', '.'));
+      if (!Number.isFinite(value)) continue;
+
+      // Percentage formulas may use 100 as a mathematical constant. All
+      // other operands must be grounded in the user's input (or explicit
+      // structural parameters).
       const FORMULA_CONSTANTS = new Set([0, 1, 100]);
-      const operandsOk = d.operands.every((o: unknown) => {
-        if (typeof o !== 'number' || !Number.isFinite(o)) return false;
-        if (FORMULA_CONSTANTS.has(o)) return true;
-        const n = String(o);
-        return allowed.has(n) || allowed.has(n.replace('.', ','));
-      });
+      const operands: number[] = [];
+      let operandsOk = true;
+      for (const o of d.operands) {
+        const n = typeof o === 'number' ? o : Number(String(o).replace(',', '.'));
+        if (!Number.isFinite(n)) { operandsOk = false; break; }
+        if (FORMULA_CONSTANTS.has(n)) { operands.push(n); continue; }
+        const ns = String(n);
+        if (!(allowed.has(ns) || allowed.has(ns.replace('.', ',')))) { operandsOk = false; break; }
+        operands.push(n);
+      }
       if (!operandsOk) continue;
-      const operands = d.operands as number[];
+
       const calculated = evaluateDerivedFormula(d.formula, operands);
       // Derived values may be rounded for display (e.g. 177.78%), but only
       // after the server independently reproduces them from grounded operands.
-      const tolerance = Math.max(1e-9, Math.abs(d.value) * 1e-6, 0.005);
-      if (calculated === null || Math.abs(calculated - d.value) > tolerance) continue;
-      trusted.push(String(d.value));
+      const tolerance = Math.max(1e-9, Math.abs(value) * 1e-6, 0.005);
+      if (calculated === null || Math.abs(calculated - value) > tolerance) continue;
+      trusted.push(String(value));
     }
     return trusted;
   } catch {
