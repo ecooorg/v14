@@ -10,6 +10,10 @@ import { APP_VERSION } from '../src/config.ts';
 let n = 0; const tests = [];
 const add = (name, fn) => tests.push([name, fn]);
 
+add('numbers: JSON operand commas are not parsed as decimal numbers', () => {
+  const json = '{"derived_numbers":[{"value":36,"formula":"1800 / 5000 * 100","operands":[1800,5000,100]}]}';
+  assert.deepEqual(validateNumbers(json, 'I earn 5000 and pay 1800.', ['36']), []);
+});
 add('numbers: grounded amounts/counts are allowed, invented numbers are reported', () => {
   assert.deepEqual(validateNumbers('Chance is 40%', 'I think 40% maybe'), []);
   assert.deepEqual(validateNumbers('Chance is 73%', 'I think 40% maybe'), ['73%']);
@@ -39,6 +43,22 @@ add('numbers: user-supplied percentage may be echoed as a bare derived value, bu
   assert.deepEqual(validateNumbers('{\"derived_numbers\":[{\"value\":50,\"formula\":\"user estimate\"}]}', input), []);
   assert.deepEqual(validateNumbers('Ваша оценка составляет 50%.', input), []);
   assert.deepEqual(validateNumbers('Аренда составит 50 евро.', input), ['50']);
+});
+add('numbers: derived percentage may use the mathematical constant 100', () => {
+  assert.deepEqual(validateNumbers(
+    '{"paragraph":"Расходы составляют 36% зарплаты.","derived_numbers":[{"value":36,"formula":"1800 / 5000 * 100","operands":[1800,5000,100]}]}',
+    'Я зарабатываю 5000 евро и плачу 1800 евро за жильё.',
+    ['36']
+  ), []);
+  assert.deepEqual(validateNumbers(
+    '{"paragraph":"Зарплата выше расходов примерно на 177.78%.","derived_numbers":[{"value":177.78,"formula":"(5000 - 1800) / 1800 * 100","operands":[5000,1800,1800,100]}]}',
+    'Я зарабатываю 5000 евро и плачу 1800 евро за жильё.',
+    ['177.78']
+  ), []);
+});
+add('numbers: formula constant 100 is still strict outside derived_numbers', () => {
+  assert.deepEqual(validateNumbers('The increase is 100%.', 'I think 50%.'), ['100%']);
+  assert.deepEqual(validateNumbers('{"derived_numbers":[{"value":36,"formula":"1800 / 5000 * 100","operands":[1800,5000,100]}]}', 'I earn 5000 and pay 1800.', ['36']), []);
 });
 add('triage: crisis, values-only, overkill, method', () => {
   const base = { crisis: false, onlyValues: false, costly: false, hardToUndo: false, resolvableUnknowns: false, longHorizon: false };
