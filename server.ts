@@ -889,20 +889,38 @@ The reply must contain at least one of: a reframed question, a hidden assumption
     }, meta);
   } catch (e: any) {
     // Conversation is user-facing: degrade gracefully instead of producing a
-    // dead end. The client already stores the user's text locally.
+    // dead end. The client already stores the user's text locally. Everything
+    // needed by the fallback is rebuilt from req.body because values declared
+    // inside the try block are not visible here. The fallback itself must never
+    // throw, even when Gemini quota/rate-limit/timeout errors occur.
     const reason = String(e?.code || 'AI_ERROR');
     console.warn(JSON.stringify({ type: 'conversation_fallback', code: reason, message: String(e?.message || e).slice(0, 240) }));
-    const crisisBlock = distressMarkerDetected
+
+    const fallbackBody = req.body || {};
+    const fallbackBrief = fallbackBody?.brief && typeof fallbackBody.brief === 'object' ? fallbackBody.brief : {};
+    const fallbackHistory = Array.isArray(fallbackBody?.history)
+      ? fallbackBody.history.slice(-12).map((m: any) => ({
+          role: m?.role === 'user' ? 'user' : 'assistant',
+          content: String(m?.content || '').slice(0, 8000),
+        }))
+      : [];
+    const fallbackUserTurns = fallbackHistory.filter((m: any) => m.role === 'user').length;
+    const fallbackLastUserText = [...fallbackHistory].reverse().find((m: any) => m.role === 'user')?.content
+      || String(fallbackBrief?.decision || '');
+    const fallbackDistressMarkerDetected = hasDistressMarker(fallbackLastUserText)
+      || (fallbackUserTurns <= 1 && hasDistressMarker(String(fallbackBrief?.decision || '')));
+    const fallbackState = normalizeState(fallbackBody?.state);
+    const crisisBlock = fallbackDistressMarkerDetected
       ? `\n\n---\nIf you are in immediate danger, contact local emergency services or a person near you right now.\n${SUPPORT_CONTACTS.map((c) => `${c.label}: ${c.value}`).join('\n')}`
       : '';
     const fallbackReply = `Я сохранил вашу ситуацию. Сейчас AI-модель временно недоступна, поэтому я не буду придумывать факты или расчёты. Ваш текст не потерян — можно повторить запрос через некоторое время.${crisisBlock}`;
     return ok(res, {
       reply: fallbackReply, question: '', contextSufficiency: 'LOW',
-      triage: distressMarkerDetected ? 'CRISIS' : 'PROCEED',
+      triage: fallbackDistressMarkerDetected ? 'CRISIS' : 'PROCEED',
       gain: [], options: [], newOptions: [], newOptionTypes: [], nextStep: '', factsToCheck: [],
-      state: mergeModelState(safeState, {
-        previous: safeState,
-        userTexts: [String(brief?.decision || ''), ...safeHistory.filter((m: any) => m.role === 'user').map((m: any) => m.content)],
+      state: mergeModelState(fallbackState, {
+        previous: fallbackState,
+        userTexts: [String(fallbackBrief?.decision || ''), ...fallbackHistory.filter((m: any) => m.role === 'user').map((m: any) => m.content)],
         lastAssistantText: '',
       }),
     }, { model: 'fallback', fallback: true, durationMs: 0, stage: 'conversation-fallback', calls: 0, lightFallback: false, promptChars: 0, errorCode: reason });
