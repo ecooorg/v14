@@ -38,10 +38,13 @@ async function api(path: string, body: unknown) {
   const r = await fetch(path, { method: 'POST', headers, body: JSON.stringify(body) });
   const j = await r.json().catch(() => ({}));
   if (!r.ok || !j.success) {
-    if (r.status === 429 || j.code === 'GEMINI_RATE_LIMIT' || j.code === 'RATE_LIMIT' || j.code === 'DAILY_CAP') {
-      throw new Error('AI is temporarily busy. Please wait a moment and try again.');
-    }
-    throw new Error(j.error || `API error ${r.status}`);
+    // Preserve the real provider/server reason. AI failures are handled by runApi
+    // as a neutral status message, never by the red global error banner.
+    const detail = j?.details?.upstreamMessage ? ` — ${j.details.upstreamMessage}` : '';
+    const err = new Error(`${j.error || `API error ${r.status}`}${detail}`);
+    (err as any).code = j.code;
+    (err as any).status = r.status;
+    throw err;
   }
   return j;
 }
@@ -186,7 +189,9 @@ export default function App() {
       const j = await api(path, body);
       onOk(j.data, j.meta);
     } catch (e: any) {
-      setError(e.message || 'Error');
+      // Provider/API failures are operational states, not application crashes.
+      // Keep the user informed without showing the red error banner.
+      setMessage(e.message || 'The AI service is temporarily unavailable. Your text is safe.');
     } finally {
       setBusy(false);
     }
@@ -466,7 +471,7 @@ export default function App() {
               </button>
             </div>
           )}
-          {expertMode && message && (
+          {message && (
             <div className="alert">
               <Check size={16} /> {message}
               <button className="ghost" onClick={() => setMessage('')}>
