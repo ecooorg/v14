@@ -37,6 +37,8 @@ add('numbers: Russian number words are grounded by user input', () => {
   assert.deepEqual(validateNumbers('Срок — три месяца', 'Я планирую три месяца'), []);
   assert.deepEqual(validateNumbers('Срок — три месяца', 'Я планирую поездку'), ['word:3']);
   assert.deepEqual(validateNumbers('Срок — двадцать три дня', 'У меня 23 дня'), []);
+  assert.deepEqual(validateNumbers('Срок — двадцать три дня', 'У меня 22 дня'), ['word:23']);
+  assert.deepEqual(validateNumbers('The period is twenty three days', 'I have 23 days'), []);
 });
 add('numbers: user-supplied percentage may be echoed as a bare derived value, but not as an unrelated fact', () => {
   const input = 'Я думаю, что примерно на 50%.';
@@ -56,6 +58,12 @@ add('numbers: derived percentage may use the mathematical constant 100', () => {
     ['177.78']
   ), []);
 });
+
+add('numbers: derived values remain trusted when operands are listed in a different order', () => {
+  const json = '{"paragraph":"Зарплата выше расходов примерно на 177.78%.","derived_numbers":[{"value":177.78,"formula":"(5000 - 1800) / 1800 * 100","operands":[100,1800,5000,1800]}]}';
+  assert.deepEqual(validateNumbers(json, 'Я зарабатываю 5000 евро и плачу 1800 евро за жильё.', ['177.78']), []);
+});
+
 add('numbers: formula constant 100 is still strict outside derived_numbers', () => {
   assert.deepEqual(validateNumbers('The increase is 100%.', 'I think 50%.'), ['100%']);
   assert.deepEqual(validateNumbers('{"derived_numbers":[{"value":36,"formula":"1800 / 5000 * 100","operands":[1800,5000,100]}]}', 'I earn 5000 and pay 1800.', ['36']), []);
