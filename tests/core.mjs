@@ -10,9 +10,11 @@ import { APP_VERSION } from '../src/config.ts';
 let n = 0; const tests = [];
 const add = (name, fn) => tests.push([name, fn]);
 
-add('numbers: percent from the input is allowed, an invented percent is reported', () => {
+add('numbers: grounded amounts/counts are allowed, invented bare numbers are reported', () => {
   assert.deepEqual(validateNumbers('Chance is 40%', 'I think 40% maybe'), []);
   assert.deepEqual(validateNumbers('Chance is 73%', 'I think 40% maybe'), ['73%']);
+  assert.deepEqual(validateNumbers('The budget is 2000', 'My budget is 2000'), []);
+  assert.deepEqual(validateNumbers('The budget is 3500', 'My budget is 2000'), ['3500']);
   assert.deepEqual(validateNumbers('About 3 options', 'I have 3 options'), []);
 });
 add('triage: crisis, values-only, overkill, method', () => {
