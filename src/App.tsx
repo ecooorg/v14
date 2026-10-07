@@ -463,10 +463,6 @@ export default function App() {
             <SharedConversationContext d={d} />
           )}
 
-          {expertMode && (
-            <MethodGuide step={d.step} stageMeta={stageMeta} busy={busy} />
-          )}
-
           {error && (
             <div className="alert error">
               <AlertCircle size={16} /> {error}
@@ -626,8 +622,7 @@ function Header(props: {
 function AssistantMessage({ children }: { children: React.ReactNode }) {
   return (
     <div className="panel expert-result-card" style={{ maxWidth: 820, margin: '0 auto 16px', lineHeight: 1.7 }}>
-      <div className="eyebrow">WHAT WE FOUND</div>
-      <div style={{ marginTop: 8 }}>{children}</div>
+      <div>{children}</div>
     </div>
   );
 }
@@ -901,9 +896,7 @@ function SharedConversationContext({ d }: { d: Decision }) {
   return (
     <div className="conversation-shell expert-shared-conversation">
       <div className="method-transition-card" style={{ marginBottom: 16 }}>
-        <div className="eyebrow">YOUR CONVERSATION</div>
-        <b>The original conversation is preserved here</b>
-        <div style={{ marginTop: 12 }}>
+        <div style={{ marginTop: 0 }}>
           <div className="conversation-message user" style={{ marginBottom: 8 }}>
             <div className="conversation-message-text" translate="no" dir="auto" style={{ display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden' } as React.CSSProperties}>{userPreview}</div>
           </div>
@@ -1021,27 +1014,17 @@ function ConversationScreen({
 }
 
 function ExpertStageIntro({
-  step,
-  title,
-  task,
-  next,
+  step: _step,
+  title: _title,
+  task: _task,
+  next: _next,
 }: {
   step: string;
   title: string;
   task: string;
   next: string;
 }) {
-  return (
-    <div className="expert-stage-intro">
-      <div className="expert-stage-intro-top">
-        <span className="expert-stage-kicker">YOUR TASK · {step}</span>
-        <span className="expert-stage-rule">You stay in control</span>
-      </div>
-      <h2>{title}</h2>
-      <p>{task}</p>
-      <div className="expert-stage-next"><b>What happens next:</b> {next}</div>
-    </div>
-  );
+  return null;
 }
 
 // --- UNDERSTAND ---
@@ -1065,11 +1048,8 @@ function UnderstandScreen({
 
   useEffect(() => {
     const analysisVersion = (d.radar as any)?.meta?.expertAnalysisVersion;
-    const hasResolvedUnknown = (d.radar?.unknowns || []).some((u: any) =>
-      !!u.answer || u.status === 'USER_CONFIRMED' || u.status === 'USER_UNKNOWN' || u.status === 'ACCEPTED_UNCERTAINTY'
-    );
-    const analysisIsCurrent = analysisVersion === 'v3';
-    if ((analysisIsCurrent || hasResolvedUnknown) || busy || understandStarted.current || !d.brief.decision) return;
+    const analysisIsCurrent = analysisVersion === 'v4';
+    if (analysisIsCurrent || busy || understandStarted.current || !d.brief.decision) return;
     understandStarted.current = true;
     runApi('/api/understand', { brief: d.brief, history: d.modelSuggestions?.conversation || [] }, (data, meta) => {
       const neutralItems = data?.neutralization?.items || [];
@@ -1093,7 +1073,7 @@ function UnderstandScreen({
           effort: u.effort || 'DAYS', branchIfA: u.branchIfA || { answer: '', leadsTo: '' }, branchIfB: u.branchIfB || { answer: '', leadsTo: '' },
           critical: !!u.critical, owner: u.owner || 'You',
         })),
-        meta: { ...meta, expertAnalysisVersion: 'v3' },
+        meta: { ...meta, expertAnalysisVersion: 'v4' },
       };
       update({
         neutralization: neutralItems.map((it: any) => ({ id: it.id || uid('n'), original: it.original || '', kind: it.kind || 'KEEP', neutralQuestion: it.neutralQuestion, userChoice: 'ACCEPT' as const })),
@@ -1131,13 +1111,46 @@ function UnderstandScreen({
     });
   };
 
-  const list = (items: any[] | undefined) => (items || []).filter((x) => x?.text).slice(0, 6);
-  const facts = list(d.radar?.facts);
-  const assumptions = list(d.radar?.assumptions);
-  const examples = list((d.radar as any)?.examples);
-  const interpretations = list(d.radar?.interpretations);
-  const values = list(d.radar?.values);
-  const externalChecks = list(d.radar?.needsExternalCheck);
+  const compact = (value: unknown) => String(value || '').replace(/\s+/g, ' ').trim();
+  const normalizeForCompare = (value: unknown) => compact(value).toLocaleLowerCase().replace(/[^\p{L}\p{N}%€$£]+/gu, ' ');
+  const isUseful = (value: unknown) => {
+    const text = compact(value);
+    if (text.length < 8) return false;
+    if (/^(?:unknown|unknown\.|not specified|not provided|none|n\/a)$/i.test(text)) return false;
+    if (/^(?:consider your options|analyze the situation|collect more information|provide more details)$/i.test(text)) return false;
+    return true;
+  };
+  const list = (items: any[] | undefined, max = 6) => {
+    const seen = new Set<string>();
+    return (items || []).filter((x) => {
+      if (!x?.text || !isUseful(x.text)) return false;
+      const key = normalizeForCompare(x.text);
+      if (!key || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    }).slice(0, max);
+  };
+  const textList = (items: any[] | undefined, max = 6) => {
+    const seen = new Set<string>();
+    return (items || []).filter((x) => {
+      if (!isUseful(x)) return false;
+      const key = normalizeForCompare(x);
+      if (!key || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    }).slice(0, max).map((x) => compact(x));
+  };
+  const facts = list(d.radar?.facts, 8);
+  const assumptions = list(d.radar?.assumptions, 8);
+  const examples = list((d.radar as any)?.examples, 8);
+  const interpretations = list(d.radar?.interpretations, 6);
+  const values = list(d.radar?.values, 6);
+  const externalChecks = list(d.radar?.needsExternalCheck, 6);
+  const summary = compact((d.radar as any)?.decisionSummary);
+  const situation = textList((d.radar as any)?.currentSituation, 5).filter((x: string) => {
+    const text = normalizeForCompare(x);
+    return !facts.some((f: any) => normalizeForCompare(f.text) === text);
+  });
   const unresolved = (d.radar?.unknowns || []).filter((u) => !u.discarded && !u.answer && u.status !== 'USER_UNKNOWN' && u.status !== 'ACCEPTED_UNCERTAINTY');
 
   const RadarBlock = ({ title, items, hint }: { title: string; items: any[]; hint?: string }) => {
@@ -1160,61 +1173,40 @@ function UnderstandScreen({
 
   return (
     <div className="friendly-flow">
-      <div className="expert-stage-intro">
-        <div className="expert-stage-intro-top">
-          <span className="expert-stage-kicker">YOUR DECISION · CURRENT PICTURE</span>
-          <span className="expert-stage-rule">Based on what you have already told us</span>
-        </div>
-        <h2>Here is the situation broken into decision-relevant parts</h2>
-        <p>We keep your original conversation intact, then separate facts, assumptions, values, outside checks, and the unknowns that could actually change the decision.</p>
-      </div>
-
-      <div className="method-transition-card">
-        <div className="eyebrow">YOUR SITUATION</div>
-        <p className="method-transition-title">We start with what you actually told us.</p>
-        <p className="method-transition-copy">Nothing here is a verdict. This is the working picture that the next steps will test.</p>
-        {d.brief.decision && (
-          <details className="method-story-details">
-            <summary>Show the story you entered</summary>
-            <div dir="auto">{d.brief.decision}</div>
-          </details>
-        )}
-      </div>
-
-      {!d.radar && (
+      {!d.radar && busy && (
         <AssistantMessage>
-          <p style={{ marginTop: 0 }}>{busy ? 'I am mapping your situation now. The useful result will appear here as facts, assumptions, values, and questions.' : 'The first step is ready. We will map the situation before discussing which option is better.'}</p>
+          <p style={{ marginTop: 0 }}>Looking at the specific facts and unknowns in your situation…</p>
         </AssistantMessage>
       )}
 
       {d.radar && (
         <>
-          <AssistantMessage>
-            <p style={{ marginTop: 0 }}><b>Here is your decision, broken into concrete parts.</b></p>
-            {(d.radar as any)?.decisionSummary && (
-              <div className="question">
-                <div className="listhead">THE DECISION IN PLAIN WORDS</div>
-                <p style={{ marginBottom: 0 }} dir="auto">{(d.radar as any).decisionSummary}</p>
-              </div>
-            )}
-            {Array.isArray((d.radar as any)?.currentSituation) && (d.radar as any).currentSituation.length > 0 && (
-              <div className="question">
-                <div className="listhead">WHAT IS ALREADY CLEAR</div>
-                <ul>{(d.radar as any).currentSituation.slice(0, 5).map((x: any, i: number) => <li key={i} dir="auto">{String(x)}</li>)}</ul>
-              </div>
-            )}
-            <RadarBlock title="What you know" items={facts} hint="Only information treated as part of the established picture." />
-            <RadarBlock title="What is still an assumption" items={assumptions} hint="Working hypotheses that may be useful, but are not established facts." />
-            <RadarBlock title="Examples and hypothetical values" items={examples} hint="These were framed as examples or scenarios, not as confirmed facts." />
-            <RadarBlock title="What may be an interpretation" items={interpretations} />
-            <RadarBlock title="What matters to you" items={values} hint="Your stated priorities and constraints." />
-            <RadarBlock title="What needs an outside check" items={externalChecks} hint="Facts that should be confirmed before relying on them." />
-          </AssistantMessage>
+          {(summary || situation.length || facts.length || assumptions.length || examples.length || interpretations.length || values.length || externalChecks.length) > 0 && (
+            <AssistantMessage>
+              {summary && (
+                <div className="question">
+                  <div className="listhead">THE DECISION</div>
+                  <p style={{ marginBottom: 0 }} dir="auto">{summary}</p>
+                </div>
+              )}
+              {situation.length > 0 && (
+                <div className="question">
+                  <div className="listhead">WHAT IS CLEAR</div>
+                  <ul>{situation.map((x: string, i: number) => <li key={i} dir="auto">{x}</li>)}</ul>
+                </div>
+              )}
+              <RadarBlock title="What you know" items={facts} />
+              <RadarBlock title="What is still an assumption" items={assumptions} />
+              <RadarBlock title="Examples and hypothetical values" items={examples} />
+              <RadarBlock title="What may be an interpretation" items={interpretations} />
+              <RadarBlock title="What matters to you" items={values} />
+              <RadarBlock title="What needs an outside check" items={externalChecks} />
+            </AssistantMessage>
+          )}
 
           {Array.isArray((d.radar as any)?.nextActions) && (d.radar as any).nextActions.length > 0 && (
             <AssistantMessage>
-              <p style={{ marginTop: 0 }}><b>What to do next</b></p>
-              <p>These are concrete actions derived from your situation, not a description of the method.</p>
+              <p style={{ marginTop: 0 }}><b>Next useful actions</b></p>
               <div className="cards">
                 {(d.radar as any).nextActions.slice(0, 5).map((a: any, i: number) => (
                   <div className="option" key={i}>
@@ -1231,7 +1223,6 @@ function UnderstandScreen({
           {unresolved.length > 0 ? (
             <AssistantMessage>
               <p style={{ marginTop: 0 }}><b>Open questions</b></p>
-              <p>These are the few unknowns whose answers could actually change the decision.</p>
               <ul>
                 {unresolved.slice(0, 5).map((u) => (
                   <li key={u.id} style={{ marginBottom: 10 }}>
@@ -1253,8 +1244,6 @@ function UnderstandScreen({
             </AssistantMessage>
           ) : (
             <AssistantMessage>
-              <p style={{ marginTop: 0 }}><b>This stage is clear enough to move on.</b></p>
-              <p>There are no unresolved critical questions that need your answer right now. The next step is to widen the possible paths before comparing them.</p>
               <button className="primary" disabled={busy} onClick={goToOptions}>See the possible paths <ArrowRight size={16} /></button>
             </AssistantMessage>
           )}
