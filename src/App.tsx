@@ -1254,7 +1254,7 @@ function UnderstandScreen({
 
           {Array.isArray((d.radar as any)?.nextActions) && (d.radar as any).nextActions.length > 0 && (
             <AssistantMessage>
-              <p style={{ marginTop: 0 }}><b className="ui-label">Next useful actions</b></p>
+              <div className="listhead">Next useful actions</div>
               <div className="cards">
                 {(d.radar as any).nextActions.slice(0, 5).map((a: any, i: number) => {
                   const userText = [
@@ -1278,12 +1278,12 @@ function UnderstandScreen({
 
           {unresolved.length > 0 ? (
             <AssistantMessage>
-              <p style={{ marginTop: 0 }}><b className="ui-label">Open questions</b></p>
+              <div className="listhead">Open questions</div>
               <ul>
                 {unresolved.slice(0, 5).map((u) => (
                   <li key={u.id} style={{ marginBottom: 10 }}>
-                    <b dir="auto">{u.question}</b>
-                    {u.whyChangesDecision && <div style={{ marginTop: 3 }} dir="auto">{u.whyChangesDecision}</div>}
+                    <div className="open-question" dir="auto">{u.question}</div>
+                    {u.whyChangesDecision && <div className="open-why" style={{ marginTop: 3 }} dir="auto">{u.whyChangesDecision}</div>}
                     {u === current && (
                       <div className="question" style={{ marginTop: 10 }}>
                         {u.howToFindOut && <p dir="auto"><b className="ui-label">How to find out:</b> {u.howToFindOut}</p>}

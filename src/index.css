@@ -485,3 +485,22 @@ button:disabled{
   .header-actions>.ghost{padding-left:0 !important;padding-right:0 !important}
   .hdr-secondary .ghost{font-size:11px !important}
 }
+
+
+/* v20.10 — one typographic scale inside assistant blocks: same size, no stray bold.
+   Block titles (.listhead) and fixed captions (.ui-label) = vivid blue; AI text = light blue; user answer = white. */
+.assistant-surface .listhead{font-size:18px;font-weight:600;margin-bottom:8px}
+.assistant-surface ul{margin:0;padding-left:0;list-style:none}
+.assistant-surface .open-question,
+.assistant-surface .open-why,
+.assistant-surface li,
+.assistant-surface .question p,
+.assistant-surface .question li,
+.assistant-surface .option-copy,
+.assistant-surface .optiontop{font-size:16px;line-height:1.6;font-weight:400;color:var(--be-ai) !important}
+.assistant-surface .open-question{margin-bottom:4px}
+.assistant-surface .question b,
+.assistant-surface .ui-label,
+.assistant-surface b.ui-label{font-size:inherit !important;font-weight:600;color:var(--be-interface) !important}
+.assistant-surface textarea{font-size:16px;font-weight:400;color:var(--be-user) !important}
+.assistant-surface textarea::placeholder{color:#6fa1cf !important;font-weight:400}
