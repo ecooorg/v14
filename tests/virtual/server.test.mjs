@@ -70,6 +70,99 @@ try {
     assert.ok('lightModels' in j && 'hasKey' in j);
     assert.equal((await (await fetch(srv.base + '/api/session', { headers: { cookie } })).json()).authenticated, true);
   });
+
+  // 1b. File attachments are validated and never persisted.
+  await t('attachment validation accepts text files without returning file content', async () => {
+    const form = new FormData();
+    form.append('file', new Blob(['alpha\n42'], { type: 'text/plain' }), 'notes.txt');
+    const r = await fetch(srv.base + '/api/attach', { method: 'POST', headers: { cookie }, body: form });
+    assert.equal(r.status, 200);
+    const j = await r.json();
+    assert.equal(j.success, true);
+    assert.equal(j.data.name, 'notes.txt');
+    assert.equal(j.data.size, 8);
+    assert.equal('text' in j.data, false);
+    assert.equal('inlineData' in j.data, false);
+    assert.equal(j.meta.stored, false);
+  });
+
+  await t('conversation accepts multipart text attachment without the 256-KB JSON limit', async () => {
+    const before = fakeHits;
+    const form = new FormData();
+    form.append('brief', JSON.stringify({ decision: 'Should I move?' }));
+    form.append('history', JSON.stringify([{ role: 'user', content: 'Should I move?' }]));
+    form.append('file', new Blob(['USER DATA\n42'], { type: 'text/plain' }), 'context.txt');
+    const r = await fetch(srv.base + '/api/conversation', { method: 'POST', headers: { cookie }, body: form });
+    assert.equal(r.status, 200);
+    assert.ok(fakeHits > before, 'fake Gemini was not reached');
+    const j = await r.json();
+    assert.equal(j.success, true);
+    assert.equal(j.data.attachments[0].name, 'context.txt');
+    assert.equal(j.data.attachments[0].hasContent, true);
+  });
+
+  await t('large multipart text attachment is accepted up to the attachment limit and remains outside JSON body limit', async () => {
+    const form = new FormData();
+    form.append('brief', JSON.stringify({ decision: 'Should I move?' }));
+    form.append('history', JSON.stringify([{ role: 'user', content: 'Should I move?' }]));
+    form.append('file', new Blob(['x'.repeat(400_000)], { type: 'text/plain' }), 'large.txt');
+    const r = await fetch(srv.base + '/api/conversation', { method: 'POST', headers: { cookie }, body: form });
+    assert.equal(r.status, 200);
+  });
+
+  await t('attachment rejects mismatched binary signature', async () => {
+    const form = new FormData();
+    form.append('file', new Blob(['not a pdf'], { type: 'application/pdf' }), 'fake.pdf');
+    const r = await fetch(srv.base + '/api/attach', { method: 'POST', headers: { cookie }, body: form });
+    assert.equal(r.status, 400);
+    const j = await r.json();
+    assert.equal(j.code, 'INVALID_ATTACHMENT');
+  });
+
+  await t('document endpoint generates DOCX', async () => {
+    const r = await fetch(srv.base + '/api/document', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', cookie },
+      body: JSON.stringify({
+        format: 'docx',
+        document: { title: 'Test note', paragraphs: ['Hello'], bullets: ['One'], sections: [], tables: [] },
+      }),
+    });
+    assert.equal(r.status, 200);
+    assert.match(r.headers.get('content-type') || '', /wordprocessingml/);
+    const bytes = new Uint8Array(await r.arrayBuffer());
+    assert.ok(bytes[0] === 0x50 && bytes[1] === 0x4b, 'DOCX should be a ZIP container');
+  });
+
+  await t('document download uses ASCII fallback and UTF-8 filename for Cyrillic titles', async () => {
+    const r = await fetch(srv.base + '/api/document', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', cookie },
+      body: JSON.stringify({
+        format: 'pdf',
+        document: { title: 'Тестовый документ', paragraphs: ['Проверка'], bullets: [], sections: [], tables: [] },
+      }),
+    });
+    assert.equal(r.status, 200);
+    const cd = r.headers.get('content-disposition') || '';
+    assert.match(cd, /filename="[^"]+\.pdf"/);
+    assert.match(cd, /filename\*=UTF-8''%D0/);
+  });
+
+  await t('document endpoint generates PDF with the bundled Unicode font', async () => {
+    const r = await fetch(srv.base + '/api/document', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', cookie },
+      body: JSON.stringify({
+        format: 'pdf',
+        document: { title: 'Тестовый документ', paragraphs: ['Проверка кириллицы'], bullets: [], sections: [], tables: [] },
+      }),
+    });
+    assert.equal(r.status, 200);
+    assert.match(r.headers.get('content-type') || '', /application\/pdf/);
+    const text = Buffer.from(await r.arrayBuffer()).subarray(0, 5).toString('ascii');
+    assert.equal(text, '%PDF-');
+  });
   await t('tampered cookie is rejected', async () => {
     const bad = cookie.replace(/.$/, (c) => (c === 'a' ? 'b' : 'a'));
     assert.equal((await (await fetch(srv.base + '/api/session', { headers: { cookie: bad } })).json()).authenticated, false);
