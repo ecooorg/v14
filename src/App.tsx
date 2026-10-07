@@ -888,40 +888,42 @@ function SharedConversationContext({ d }: { d: Decision }) {
   if (!history.length) return null;
 
   const firstUser = history.find((m: any) => m.role === 'user');
-  const lastAssistant = [...history].reverse().find((m: any) => m.role === 'assistant');
+  const firstAssistant = history.find((m: any) => m.role === 'assistant');
   const compact = (value: unknown) => String(value || '').replace(/\s+/g, ' ').trim();
-  const preview = compact(lastAssistant?.content || firstUser?.content || '');
+  const previewText = (value: unknown, max = 360) => {
+    const text = compact(value);
+    if (text.length <= max) return text;
+    return `${text.slice(0, max).replace(/\s+\S*$/, '')}…`;
+  };
+  const userPreview = previewText(firstUser?.content);
+  const assistantPreview = previewText(firstAssistant?.content);
 
   return (
     <div className="conversation-shell expert-shared-conversation">
-      <details className="method-transition-card" style={{ marginBottom: 16 }}>
-        <summary style={{ cursor: 'pointer', listStylePosition: 'inside' }}>
-          <span className="eyebrow" style={{ display: 'inline', marginRight: 8 }}>YOUR CONVERSATION</span>
-          <b>The original conversation is preserved here</b>
-        </summary>
-        <div style={{ marginTop: 10 }}>
-          <div
-            dir="auto"
-            style={{
-              color: '#9fb0c2',
-              display: '-webkit-box',
-              WebkitLineClamp: 4,
-              WebkitBoxOrient: 'vertical',
-              overflow: 'hidden',
-              lineHeight: 1.55,
-            } as React.CSSProperties}
-          >
-            {preview}
+      <div className="method-transition-card" style={{ marginBottom: 16 }}>
+        <div className="eyebrow">YOUR CONVERSATION</div>
+        <b>The original conversation is preserved here</b>
+        <div style={{ marginTop: 12 }}>
+          <div className="conversation-message user" style={{ marginBottom: 8 }}>
+            <div className="conversation-message-text" translate="no" dir="auto" style={{ display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden' } as React.CSSProperties}>{userPreview}</div>
           </div>
-          <div className="conversation-thread" style={{ marginTop: 14 }}>
+          {assistantPreview && (
+            <div className="conversation-message assistant">
+              <div className="conversation-message-text" translate="no" dir="auto" style={{ display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden' } as React.CSSProperties}>{assistantPreview}</div>
+            </div>
+          )}
+        </div>
+        <details className="method-story-details" style={{ marginTop: 10 }}>
+          <summary>Read the full conversation</summary>
+          <div className="conversation-thread" style={{ marginTop: 10 }}>
             {history.map((m: any, i: number) => (
               <div key={i} className={`conversation-message ${m.role === 'user' ? 'user' : 'assistant'}`}>
                 <div className="conversation-message-text" translate="no" dir="auto">{m.content}</div>
               </div>
             ))}
           </div>
-        </div>
-      </details>
+        </details>
+      </div>
     </div>
   );
 }
@@ -1062,7 +1064,12 @@ function UnderstandScreen({
   const current = open[0];
 
   useEffect(() => {
-    if (d.radar || busy || understandStarted.current || !d.brief.decision) return;
+    const analysisVersion = (d.radar as any)?.meta?.expertAnalysisVersion;
+    const hasResolvedUnknown = (d.radar?.unknowns || []).some((u: any) =>
+      !!u.answer || u.status === 'USER_CONFIRMED' || u.status === 'USER_UNKNOWN' || u.status === 'ACCEPTED_UNCERTAINTY'
+    );
+    const analysisIsCurrent = analysisVersion === 'v2';
+    if ((analysisIsCurrent || hasResolvedUnknown) || busy || understandStarted.current || !d.brief.decision) return;
     understandStarted.current = true;
     runApi('/api/understand', { brief: d.brief, history: d.modelSuggestions?.conversation || [] }, (data, meta) => {
       const neutralItems = data?.neutralization?.items || [];
@@ -1085,7 +1092,7 @@ function UnderstandScreen({
           effort: u.effort || 'DAYS', branchIfA: u.branchIfA || { answer: '', leadsTo: '' }, branchIfB: u.branchIfB || { answer: '', leadsTo: '' },
           critical: !!u.critical, owner: u.owner || 'You',
         })),
-        meta,
+        meta: { ...meta, expertAnalysisVersion: 'v2' },
       };
       update({
         neutralization: neutralItems.map((it: any) => ({ id: it.id || uid('n'), original: it.original || '', kind: it.kind || 'KEEP', neutralQuestion: it.neutralQuestion, userChoice: 'ACCEPT' as const })),
@@ -1176,13 +1183,42 @@ function UnderstandScreen({
       {d.radar && (
         <>
           <AssistantMessage>
-            <p style={{ marginTop: 0 }}><b>Here is the current picture.</b></p>
-            <RadarBlock title="What we know" items={facts} hint="Statements that came directly from your situation." />
-            <RadarBlock title="What we may be assuming" items={assumptions} hint="Ideas that may be true, but should not be treated as facts yet." />
+            <p style={{ marginTop: 0 }}><b>Here is your decision, broken into concrete parts.</b></p>
+            {(d.radar as any)?.decisionSummary && (
+              <div className="question">
+                <div className="listhead">THE DECISION IN PLAIN WORDS</div>
+                <p style={{ marginBottom: 0 }} dir="auto">{(d.radar as any).decisionSummary}</p>
+              </div>
+            )}
+            {Array.isArray((d.radar as any)?.currentSituation) && (d.radar as any).currentSituation.length > 0 && (
+              <div className="question">
+                <div className="listhead">WHAT IS ALREADY CLEAR</div>
+                <ul>{(d.radar as any).currentSituation.slice(0, 5).map((x: any, i: number) => <li key={i} dir="auto">{String(x)}</li>)}</ul>
+              </div>
+            )}
+            <RadarBlock title="What you know" items={facts} hint="Details that came from your situation or the conversation already held." />
+            <RadarBlock title="What is still an assumption" items={assumptions} hint="These are the parts that need evidence before they should drive the decision." />
             <RadarBlock title="What may be an interpretation" items={interpretations} />
-            <RadarBlock title="What matters to you" items={values} hint="Preferences or values that can legitimately affect your choice." />
-            <RadarBlock title="What needs an outside check" items={externalChecks} hint="Facts that should be confirmed against an independent source." />
+            <RadarBlock title="What matters to you" items={values} hint="Your stated priorities and constraints." />
+            <RadarBlock title="What needs an outside check" items={externalChecks} hint="Facts that should be confirmed before relying on them." />
           </AssistantMessage>
+
+          {Array.isArray((d.radar as any)?.nextActions) && (d.radar as any).nextActions.length > 0 && (
+            <AssistantMessage>
+              <p style={{ marginTop: 0 }}><b>What to do next</b></p>
+              <p>These are concrete actions derived from your situation, not a description of the method.</p>
+              <div className="cards">
+                {(d.radar as any).nextActions.slice(0, 5).map((a: any, i: number) => (
+                  <div className="option" key={i}>
+                    <div className="optiontop" dir="auto">{a.action || a.title || `Action ${i + 1}`}</div>
+                    {a.why && <div className="option-copy" dir="auto"><b>Why:</b> {a.why}</div>}
+                    {a.measure && <div className="option-copy" dir="auto"><b>What to measure:</b> {a.measure}</div>}
+                    {a.decisionEffect && <div className="option-copy" dir="auto"><b>What changes if the result is different:</b> {a.decisionEffect}</div>}
+                  </div>
+                ))}
+              </div>
+            </AssistantMessage>
+          )}
 
           {unresolved.length > 0 && (
             <AssistantMessage>
