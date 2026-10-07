@@ -1068,7 +1068,7 @@ function UnderstandScreen({
     const hasResolvedUnknown = (d.radar?.unknowns || []).some((u: any) =>
       !!u.answer || u.status === 'USER_CONFIRMED' || u.status === 'USER_UNKNOWN' || u.status === 'ACCEPTED_UNCERTAINTY'
     );
-    const analysisIsCurrent = analysisVersion === 'v2';
+    const analysisIsCurrent = analysisVersion === 'v3';
     if ((analysisIsCurrent || hasResolvedUnknown) || busy || understandStarted.current || !d.brief.decision) return;
     understandStarted.current = true;
     runApi('/api/understand', { brief: d.brief, history: d.modelSuggestions?.conversation || [] }, (data, meta) => {
@@ -1080,8 +1080,9 @@ function UnderstandScreen({
         createdAt: Date.now(), updatedAt: Date.now(), userImportance: c.userImportance,
       });
       const radar = {
-        facts: (radarData.facts || []).map((c: any) => mapClaim(c, 'FACT')),
-        assumptions: (radarData.assumptions || []).map((c: any) => mapClaim(c, 'ASSUMPTION')),
+        facts: (radarData.facts || []).map((c: any) => ({ ...mapClaim(c, 'FACT'), provenance: c.provenance || 'KNOWN' })),
+        assumptions: (radarData.assumptions || []).map((c: any) => ({ ...mapClaim(c, 'ASSUMPTION'), provenance: c.provenance || 'ASSUMPTION' })),
+        examples: (radarData.examples || []).map((c: any) => ({ ...mapClaim(c, 'ASSUMPTION'), provenance: 'EXAMPLE', source: 'USER_EXAMPLE' })),
         interpretations: (radarData.interpretations || []).map((c: any) => mapClaim(c, 'INTERPRETATION')),
         values: (radarData.values || []).map((c: any) => mapClaim(c, 'VALUE')),
         needsExternalCheck: (radarData.needsExternalCheck || []).map((c: any) => mapClaim(c, 'EXTERNAL_VERIFY')),
@@ -1092,7 +1093,7 @@ function UnderstandScreen({
           effort: u.effort || 'DAYS', branchIfA: u.branchIfA || { answer: '', leadsTo: '' }, branchIfB: u.branchIfB || { answer: '', leadsTo: '' },
           critical: !!u.critical, owner: u.owner || 'You',
         })),
-        meta: { ...meta, expertAnalysisVersion: 'v2' },
+        meta: { ...meta, expertAnalysisVersion: 'v3' },
       };
       update({
         neutralization: neutralItems.map((it: any) => ({ id: it.id || uid('n'), original: it.original || '', kind: it.kind || 'KEEP', neutralQuestion: it.neutralQuestion, userChoice: 'ACCEPT' as const })),
@@ -1133,6 +1134,7 @@ function UnderstandScreen({
   const list = (items: any[] | undefined) => (items || []).filter((x) => x?.text).slice(0, 6);
   const facts = list(d.radar?.facts);
   const assumptions = list(d.radar?.assumptions);
+  const examples = list((d.radar as any)?.examples);
   const interpretations = list(d.radar?.interpretations);
   const values = list(d.radar?.values);
   const externalChecks = list(d.radar?.needsExternalCheck);
@@ -1145,7 +1147,12 @@ function UnderstandScreen({
         <div className="listhead">{title}</div>
         {hint && <div className="expert-info-hint">{hint}</div>}
         <ul>
-          {items.map((x, i) => <li key={x.id || i}>{x.text}</li>)}
+          {items.map((x, i) => (
+            <li key={x.id || i} dir="auto">
+              {x.text}
+              {x.provenance === 'EXAMPLE' && <span className="expert-info-hint" style={{ display: 'inline', marginLeft: 8 }}>example</span>}
+            </li>
+          ))}
         </ul>
       </div>
     );
@@ -1196,8 +1203,9 @@ function UnderstandScreen({
                 <ul>{(d.radar as any).currentSituation.slice(0, 5).map((x: any, i: number) => <li key={i} dir="auto">{String(x)}</li>)}</ul>
               </div>
             )}
-            <RadarBlock title="What you know" items={facts} hint="Details that came from your situation or the conversation already held." />
-            <RadarBlock title="What is still an assumption" items={assumptions} hint="These are the parts that need evidence before they should drive the decision." />
+            <RadarBlock title="What you know" items={facts} hint="Only information treated as part of the established picture." />
+            <RadarBlock title="What is still an assumption" items={assumptions} hint="Working hypotheses that may be useful, but are not established facts." />
+            <RadarBlock title="Examples and hypothetical values" items={examples} hint="These were framed as examples or scenarios, not as confirmed facts." />
             <RadarBlock title="What may be an interpretation" items={interpretations} />
             <RadarBlock title="What matters to you" items={values} hint="Your stated priorities and constraints." />
             <RadarBlock title="What needs an outside check" items={externalChecks} hint="Facts that should be confirmed before relying on them." />
@@ -1220,34 +1228,28 @@ function UnderstandScreen({
             </AssistantMessage>
           )}
 
-          {unresolved.length > 0 && (
+          {unresolved.length > 0 ? (
             <AssistantMessage>
               <p style={{ marginTop: 0 }}><b>Open questions</b></p>
-              <p>These are not questions for the sake of analysis. They are questions whose answers could actually change the decision.</p>
+              <p>These are the few unknowns whose answers could actually change the decision.</p>
               <ul>
-                {unresolved.slice(0, 6).map((u) => (
-                  <li key={u.id} style={{ marginBottom: 8 }}>
-                    <b>{u.question}</b>
-                    {u.whyChangesDecision && <div style={{ marginTop: 3 }}>{u.whyChangesDecision}</div>}
+                {unresolved.slice(0, 5).map((u) => (
+                  <li key={u.id} style={{ marginBottom: 10 }}>
+                    <b dir="auto">{u.question}</b>
+                    {u.whyChangesDecision && <div style={{ marginTop: 3 }} dir="auto">{u.whyChangesDecision}</div>}
+                    {u === current && (
+                      <div className="question" style={{ marginTop: 10 }}>
+                        {u.howToFindOut && <p dir="auto"><b>How to find out:</b> {u.howToFindOut}</p>}
+                        <textarea value={answer} onChange={(e) => setAnswer(e.target.value)} placeholder="Your answer, or leave it blank if you do not know" rows={4} style={{ width: '100%' }} />
+                        <div className="actions" style={{ marginTop: 10 }}>
+                          <button className="primary" disabled={!answer.trim() || busy} onClick={() => resolveCurrent('ANSWER')}>Answer <ArrowRight size={16} /></button>
+                          <button className="ghost" disabled={busy} onClick={() => resolveCurrent('UNKNOWN')}>I don't know</button>
+                        </div>
+                      </div>
+                    )}
                   </li>
                 ))}
               </ul>
-            </AssistantMessage>
-          )}
-
-          {current ? (
-            <AssistantMessage>
-              <div className="question">
-                <div className="listhead">THE NEXT QUESTION</div>
-                <p style={{ margin: '6px 0 10px', fontSize: 18 }}><b>{current.question}</b></p>
-                {current.whyChangesDecision && <p>{current.whyChangesDecision}</p>}
-                {current.howToFindOut && <p><b>How to find out:</b> {current.howToFindOut}</p>}
-                <textarea value={answer} onChange={(e) => setAnswer(e.target.value)} placeholder="Your answer, or leave it blank if you do not know" rows={4} style={{ width: '100%' }} />
-                <div className="actions" style={{ marginTop: 10 }}>
-                  <button className="primary" disabled={!answer.trim() || busy} onClick={() => resolveCurrent('ANSWER')}>Answer <ArrowRight size={16} /></button>
-                  <button className="ghost" disabled={busy} onClick={() => resolveCurrent('UNKNOWN')}>I don't know</button>
-                </div>
-              </div>
             </AssistantMessage>
           ) : (
             <AssistantMessage>
