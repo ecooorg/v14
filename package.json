@@ -1,7 +1,7 @@
 {
   "name": "bifurcation-engine",
   "private": true,
-  "version": "20.0.1",
+  "version": "1.0",
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
