@@ -150,3 +150,128 @@ input,textarea,select,.input,.field input,.addrow input,.forecast-inputs input,.
 .primary {
   color:#dcecf7;
 }
+
+/* v20.6 — three-role color system
+   USER = white, MODEL = light blue, UI/SERVICE = blue.
+   Visual-only: no content or application logic is changed. */
+:root{
+  --be-user:#ffffff;
+  --be-model:#9fd8ff;
+  --be-model-strong:#b9e3ff;
+  --be-ui:#5fa9e8;
+  --be-ui-strong:#78baff;
+  --be-ui-muted:#7099bf;
+}
+
+/* USER CONTENT: the strongest and most neutral text color. */
+.conversation-message.user,
+.conversation-message.user .conversation-message-text,
+.conversation-composer textarea,
+.conversation-input,
+.user-text,
+.user-content{
+  color:var(--be-user) !important;
+}
+
+/* MODEL CONTENT: clearly blue, but readable and softer than user text. */
+.conversation-message.assistant,
+.conversation-message.assistant .conversation-message-text,
+.assistant-surface,
+.assistant-surface p,
+.assistant-surface li,
+.assistant-surface .option-copy,
+.assistant-surface .question p,
+.assistant-surface .question li,
+.expert-result-card,
+.expert-result-card .question,
+.expert-result-card .option,
+.expert-result-card p,
+.expert-result-card li,
+.expert-result-card .optiontop,
+.expert-result-card .option-copy,
+.model-text,
+.model-content{
+  color:var(--be-model) !important;
+}
+
+/* Model headings remain blue, just brighter for hierarchy. */
+.assistant-surface h1,
+.assistant-surface h2,
+.assistant-surface h3,
+.assistant-surface h4,
+.assistant-surface b,
+.assistant-surface strong,
+.expert-result-card h1,
+.expert-result-card h2,
+.expert-result-card h3,
+.expert-result-card h4,
+.expert-result-card b,
+.expert-result-card strong{
+  color:var(--be-model-strong) !important;
+}
+
+/* UI / SERVICE: buttons, labels, navigation, controls and structural accents. */
+button,
+.ghost,
+.primary,
+.danger,
+.chip,
+.mini-actions button,
+.decision-buttons button,
+.question-actions button,
+.header .ghost,
+.header .primary,
+.method-step,
+.method-step b,
+.method-current-label,
+.method-current-count,
+.method-loop b,
+.method-loop small,
+.method-detail-title,
+.eyebrow,
+.stagebar,
+.brand,
+.conversation-note-label,
+.conversation-hint,
+.conversation-note,
+.friendly-status,
+.method-busy{
+  color:var(--be-ui) !important;
+}
+
+/* Primary controls are the strongest blue UI elements. */
+.primary,
+.chip.active,
+.method-step.active,
+.method-loop.current{
+  color:#dff1ff !important;
+}
+
+/* UI borders/focus states use the same blue family. */
+button:hover,
+.ghost:hover,
+.primary:hover,
+.chip:hover,
+.question-actions button:hover,
+.mini-actions button:hover{
+  border-color:var(--be-ui) !important;
+}
+
+.input:focus,
+.conversation-composer textarea:focus,
+.conversation-input:focus,
+.field input:focus,
+textarea:focus,
+select:focus{
+  border-color:var(--be-ui) !important;
+}
+
+/* Loading/status text is UI, not model prose. */
+.conversation-thinking,
+.hdr-msg,
+.privacy p,
+.sidebar-note,
+.empty,
+.spinner{
+  color:var(--be-ui-muted) !important;
+}
