@@ -1124,9 +1124,12 @@ app.post('/api/understand', async (req, res) => {
     const requestByokKey = byokFromRequest(req);
     const requestPreferredModel = preferredModelFromRequest(req);
     if (!aiGate(req, res)) return;
-    const { brief } = req.body || {};
+    const { brief, history = [] } = req.body || {};
     if (!brief?.decision) return fail(res, 400, 'No decision text', 'PRECONDITION');
-    const input = JSON.stringify({ brief });
+    const safeHistory = Array.isArray(history)
+      ? history.slice(-12).map((m: any) => ({ role: m?.role === 'user' ? 'user' : 'assistant', content: String(m?.content || '').slice(0, 8000) }))
+      : [];
+    const input = JSON.stringify({ brief, history: safeHistory });
     const prompt = `Step understand. Analyze the user's decision in one pass.
 Return JSON:
 {
@@ -1160,7 +1163,9 @@ Return JSON:
 Rules:
 - Triage first. CRISIS = acute distress: return empty lists and a humane triageNote saying a real person or specialist is needed now and the decision can wait if possible. VALUES_ONLY = nothing to discover, only values. LIGHT = cheap and easily reversible. Otherwise PROCEED.
 - Preserve user facts, constraints, values, and fears. Separate facts from assumptions and interpretations. Statements of certainty or of an already-made decision are assumptions to test.
+- The conversation history is supplied because this expert analysis continues the existing conversation. Use the assistant's earlier reply as context for what has already been surfaced, but NEVER promote an assistant claim to a user fact unless the user actually stated or confirmed it. If the earlier reply contains a useful hypothesis, treat it as an interpretation or assumption to test.
 - Do not accept the user's framing as complete: if the listed options rest on an assumption that is not a fact, put that assumption in "assumptions".
+- Do not output tautologies or generic filler such as "the user has a decision to make", "more information is needed", or "the context is required". Every item must name a concrete fact, assumption, value, interpretation, external check, or unknown from THIS user's actual situation. If there is nothing substantive for a category, return an empty list.
 - Unknowns are critical only when different answers could materially change the realistic option space or reframe the decision. Order unknowns by value of information: highest impact on the decision and cheapest to learn first. Ranking unknowns is allowed.
 - Default owner is "You". Do not invent facts, numbers, prices, deadlines, or probabilities. Everything must come from this user's own situation, not from typical topics.`;
     const { data, meta } = await generate(prompt, input, 'light', 'understand', 0, requestByokKey, requestPreferredModel);
