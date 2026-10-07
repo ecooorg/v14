@@ -441,7 +441,7 @@ export default function App() {
             })}
           </div>
           <div className="method-sidebar-help">
-            <b>How to use this</b>
+            <b className="ui-label">How to use this</b>
             <span>Follow the highlighted step, answer the question on screen, then continue.</span>
           </div>
           <div className="method-detail-stages">
@@ -1254,7 +1254,7 @@ function UnderstandScreen({
 
           {Array.isArray((d.radar as any)?.nextActions) && (d.radar as any).nextActions.length > 0 && (
             <AssistantMessage>
-              <p style={{ marginTop: 0 }}><b>Next useful actions</b></p>
+              <p style={{ marginTop: 0 }}><b className="ui-label">Next useful actions</b></p>
               <div className="cards">
                 {(d.radar as any).nextActions.slice(0, 5).map((a: any, i: number) => {
                   const userText = [
@@ -1266,9 +1266,9 @@ function UnderstandScreen({
                   return (
                     <div className="option" key={i}>
                       <div className="optiontop" dir="auto">{sanitizeDisplayExample(a.action || a.title || `Action ${i + 1}`, userText)}</div>
-                      {a.why && <div className="option-copy" dir="auto"><b>Why:</b> {sanitizeDisplayExample(a.why, userText)}</div>}
-                      {a.measure && <div className="option-copy" dir="auto"><b>What to measure:</b> {sanitizeDisplayExample(a.measure, userText)}</div>}
-                      {a.decisionEffect && <div className="option-copy" dir="auto"><b>What changes if the result is different:</b> {sanitizeDisplayExample(a.decisionEffect, userText)}</div>}
+                      {a.why && <div className="option-copy" dir="auto"><b className="ui-label">Why:</b> {sanitizeDisplayExample(a.why, userText)}</div>}
+                      {a.measure && <div className="option-copy" dir="auto"><b className="ui-label">What to measure:</b> {sanitizeDisplayExample(a.measure, userText)}</div>}
+                      {a.decisionEffect && <div className="option-copy" dir="auto"><b className="ui-label">What changes if the result is different:</b> {sanitizeDisplayExample(a.decisionEffect, userText)}</div>}
                     </div>
                   );
                 })}
@@ -1278,7 +1278,7 @@ function UnderstandScreen({
 
           {unresolved.length > 0 ? (
             <AssistantMessage>
-              <p style={{ marginTop: 0 }}><b>Open questions</b></p>
+              <p style={{ marginTop: 0 }}><b className="ui-label">Open questions</b></p>
               <ul>
                 {unresolved.slice(0, 5).map((u) => (
                   <li key={u.id} style={{ marginBottom: 10 }}>
@@ -1286,7 +1286,7 @@ function UnderstandScreen({
                     {u.whyChangesDecision && <div style={{ marginTop: 3 }} dir="auto">{u.whyChangesDecision}</div>}
                     {u === current && (
                       <div className="question" style={{ marginTop: 10 }}>
-                        {u.howToFindOut && <p dir="auto"><b>How to find out:</b> {u.howToFindOut}</p>}
+                        {u.howToFindOut && <p dir="auto"><b className="ui-label">How to find out:</b> {u.howToFindOut}</p>}
                         <textarea value={answer} onChange={(e) => setAnswer(e.target.value)} placeholder="Your answer, or leave it blank if you do not know" rows={4} style={{ width: '100%' }} />
                         <div className="actions" style={{ marginTop: 10 }}>
                           <button className="primary" disabled={!answer.trim() || busy} onClick={() => resolveCurrent('ANSWER')}>Answer <ArrowRight size={16} /></button>
@@ -1328,9 +1328,9 @@ function ExpandScreen({ d, update, busy }: { d: Decision; update: (p: Partial<De
             <div key={o.id} className="option">
               <div className="optiontop">{o.title}</div>
               {o.description && <div className="option-copy">{o.description}</div>}
-              {o.keyAssumption && <div><b>Key assumption:</b> {o.keyAssumption}</div>}
-              {o.exitCost && <div><b>If it is wrong:</b> {o.exitCost}</div>}
-              {o.cheapestTest && <div><b>Cheapest useful check:</b> {o.cheapestTest}</div>}
+              {o.keyAssumption && <div><b className="ui-label">Key assumption:</b> {o.keyAssumption}</div>}
+              {o.exitCost && <div><b className="ui-label">If it is wrong:</b> {o.exitCost}</div>}
+              {o.cheapestTest && <div><b className="ui-label">Cheapest useful check:</b> {o.cheapestTest}</div>}
             </div>
           ))}
         </div>
@@ -1400,10 +1400,10 @@ function AttackScreen({
                 <p style={{ marginTop: 0 }}><b>{option?.title || 'This path'}</b> — what could make it fail</p>
                 {r.objections.map((o) => (
                   <div key={o.id} className="attack">
-                    <div><b>Concern:</b> {o.argument}</div>
-                    {o.hiddenAssumption && <div><b>Hidden assumption:</b> {o.hiddenAssumption}</div>}
-                    {o.failureMode && <div><b>Failure mode:</b> {o.failureMode}</div>}
-                    {o.whatMustBeTrueForCritiqueToBeWeak && <div><b>What would make this concern weaker:</b> {o.whatMustBeTrueForCritiqueToBeWeak}</div>}
+                    <div><b className="ui-label">Concern:</b> {o.argument}</div>
+                    {o.hiddenAssumption && <div><b className="ui-label">Hidden assumption:</b> {o.hiddenAssumption}</div>}
+                    {o.failureMode && <div><b className="ui-label">Failure mode:</b> {o.failureMode}</div>}
+                    {o.whatMustBeTrueForCritiqueToBeWeak && <div><b className="ui-label">What would make this concern weaker:</b> {o.whatMustBeTrueForCritiqueToBeWeak}</div>}
                   </div>
                 ))}
               </AssistantMessage>

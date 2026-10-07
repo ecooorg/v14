@@ -114,3 +114,349 @@ input,textarea,select,.input,.field input,.addrow input,.forecast-inputs input,.
 .expert-stage-next b{color:#d2e1ee}
 .expert-result-card{border-color:#203b52}
 @media(max-width:700px){.expert-stage-intro{padding:14px 15px}.expert-stage-intro-top{align-items:flex-start}.expert-stage-rule{display:none}.expert-stage-intro h2{font-size:17px}.expert-stage-intro p{font-size:12px}.expert-stage-next{font-size:11px}}
+
+/* Information provenance: the user's words are bright white; application output and
+   controls use the cool blue-gray interface palette. This is visual only and never
+   changes or rejects model content. */
+.conversation-message.user,
+.conversation-message.user .conversation-message-text {
+  color:#ffffff;
+}
+.conversation-message.assistant,
+.conversation-message.assistant .conversation-message-text,
+.assistant-surface {
+  color:#a9bfd1;
+}
+.assistant-surface p,
+.assistant-surface li,
+.assistant-surface .option-copy,
+.assistant-surface .question p,
+.assistant-surface .question li {
+  color:#a9bfd1;
+}
+.assistant-surface b,
+.assistant-surface strong,
+.assistant-surface .listhead,
+.assistant-surface h1,
+.assistant-surface h2,
+.assistant-surface h3 {
+  color:#c3d6e6;
+}
+.conversation-note-label {
+  color:#7fa6c6;
+  font-weight:700;
+}
+/* Do not let generic .panel/.question rules pull assistant prose back to the user-white tone. */
+.expert-result-card,
+.expert-result-card .question,
+.expert-result-card .option {
+  color:#a9bfd1;
+}
+.ghost,
+.primary,
+.danger,
+.header .ghost,
+.header .primary {
+  color:#9fc0da;
+}
+.primary {
+  color:#dcecf7;
+}
+
+/* v20.6 — three-role color system
+   USER = white, MODEL = light blue, UI/SERVICE = blue.
+   Visual-only: no content or application logic is changed. */
+:root{
+  --be-user:#ffffff;
+  --be-model:#9fd8ff;
+  --be-model-strong:#b9e3ff;
+  --be-ui:#5fa9e8;
+  --be-ui-strong:#78baff;
+  --be-ui-muted:#7099bf;
+}
+
+/* USER CONTENT: the strongest and most neutral text color. */
+.conversation-message.user,
+.conversation-message.user .conversation-message-text,
+.conversation-composer textarea,
+.conversation-input,
+.user-text,
+.user-content{
+  color:var(--be-user) !important;
+}
+
+/* MODEL CONTENT: clearly blue, but readable and softer than user text. */
+.conversation-message.assistant,
+.conversation-message.assistant .conversation-message-text,
+.assistant-surface,
+.assistant-surface p,
+.assistant-surface li,
+.assistant-surface .option-copy,
+.assistant-surface .question p,
+.assistant-surface .question li,
+.expert-result-card,
+.expert-result-card .question,
+.expert-result-card .option,
+.expert-result-card p,
+.expert-result-card li,
+.expert-result-card .optiontop,
+.expert-result-card .option-copy,
+.model-text,
+.model-content{
+  color:var(--be-model) !important;
+}
+
+/* Model headings remain blue, just brighter for hierarchy. */
+.assistant-surface h1,
+.assistant-surface h2,
+.assistant-surface h3,
+.assistant-surface h4,
+.assistant-surface b,
+.assistant-surface strong,
+.expert-result-card h1,
+.expert-result-card h2,
+.expert-result-card h3,
+.expert-result-card h4,
+.expert-result-card b,
+.expert-result-card strong{
+  color:var(--be-model-strong) !important;
+}
+
+/* UI / SERVICE: buttons, labels, navigation, controls and structural accents. */
+button,
+.ghost,
+.primary,
+.danger,
+.chip,
+.mini-actions button,
+.decision-buttons button,
+.question-actions button,
+.header .ghost,
+.header .primary,
+.method-step,
+.method-step b,
+.method-current-label,
+.method-current-count,
+.method-loop b,
+.method-loop small,
+.method-detail-title,
+.eyebrow,
+.stagebar,
+.brand,
+.conversation-note-label,
+.conversation-hint,
+.conversation-note,
+.friendly-status,
+.method-busy{
+  color:var(--be-ui) !important;
+}
+
+/* Primary controls are the strongest blue UI elements. */
+.primary,
+.chip.active,
+.method-step.active,
+.method-loop.current{
+  color:#dff1ff !important;
+}
+
+/* UI borders/focus states use the same blue family. */
+button:hover,
+.ghost:hover,
+.primary:hover,
+.chip:hover,
+.question-actions button:hover,
+.mini-actions button:hover{
+  border-color:var(--be-ui) !important;
+}
+
+.input:focus,
+.conversation-composer textarea:focus,
+.conversation-input:focus,
+.field input:focus,
+textarea:focus,
+select:focus{
+  border-color:var(--be-ui) !important;
+}
+
+/* Loading/status text is UI, not model prose. */
+.conversation-thinking,
+.hdr-msg,
+.privacy p,
+.sidebar-note,
+.empty,
+.spinner{
+  color:var(--be-ui-muted) !important;
+}
+
+/* v20.8 — enforce the three-role visual hierarchy across every mode and tab.
+   USER = white, AI = blue, INTERFACE = vivid blue on dark surfaces. */
+:root{
+  --be-user:#ffffff;
+  --be-ai:#9fd8ff;
+  --be-ai-strong:#c2e8ff;
+  --be-interface:#58aaff;
+  --be-interface-strong:#78bcff;
+  --be-interface-border:#398de0;
+  --be-interface-bg:#0b2440;
+}
+
+/* User-authored text remains neutral white. */
+.conversation-message.user,
+.conversation-message.user .conversation-message-text,
+.user-text,
+.user-content{
+  color:var(--be-user) !important;
+}
+
+/* AI/model-authored content is consistently blue, including expert-mode cards. */
+.conversation-message.assistant,
+.conversation-message.assistant .conversation-message-text,
+.assistant-surface,
+.assistant-surface p,
+.assistant-surface li,
+.assistant-surface .option-copy,
+.assistant-surface .question p,
+.assistant-surface .question li,
+.expert-result-card,
+.expert-result-card .question,
+.expert-result-card .option,
+.expert-result-card p,
+.expert-result-card li,
+.expert-result-card .optiontop,
+.expert-result-card .option-copy,
+.model-text,
+.model-content{
+  color:var(--be-ai) !important;
+}
+
+.assistant-surface h1,
+.assistant-surface h2,
+.assistant-surface h3,
+.assistant-surface h4,
+.assistant-surface b,
+.assistant-surface strong,
+.expert-result-card h1,
+.expert-result-card h2,
+.expert-result-card h3,
+.expert-result-card h4,
+.expert-result-card b,
+.expert-result-card strong{
+  color:var(--be-ai-strong) !important;
+}
+
+/* Interface labels/navigation/controls use a visibly brighter blue. */
+button,
+.ghost,
+.primary,
+.danger,
+.chip,
+.mini-actions button,
+.decision-buttons button,
+.question-actions button,
+.header .ghost,
+.header .primary,
+.stage,
+.stage b,
+.stage small,
+.brand,
+.eyebrow,
+.stagebar,
+.field span,
+.listhead,
+.listhead span,
+.method-step,
+.method-step b,
+.method-current-label,
+.method-current-count,
+.method-loop b,
+.method-loop small,
+.method-detail-title,
+.conversation-note-label,
+.conversation-hint,
+.conversation-tools,
+.friendly-status{
+  color:var(--be-interface) !important;
+}
+
+/* Buttons are blue against the dark UI instead of grey-on-grey. */
+.ghost,
+.danger,
+.mini-actions button,
+.decision-buttons button,
+.question-actions button,
+.header .ghost{
+  background:var(--be-interface-bg) !important;
+  border-color:var(--be-interface-border) !important;
+}
+
+.primary,
+.header .primary{
+  background:#176fc5 !important;
+  border-color:var(--be-interface-strong) !important;
+  color:#ffffff !important;
+}
+
+.ghost:hover,
+.danger:hover,
+.mini-actions button:hover,
+.decision-buttons button:hover,
+.question-actions button:hover,
+.header .ghost:hover{
+  background:#12375d !important;
+  border-color:var(--be-interface-strong) !important;
+  color:#bfe5ff !important;
+}
+
+.primary:hover,
+.header .primary:hover{
+  background:#2383df !important;
+  border-color:#9bd0ff !important;
+}
+
+button:disabled{
+  color:#5e87ad !important;
+  border-color:#234b70 !important;
+  background:#0b1b2d !important;
+}
+
+.input,
+.field input,
+.addrow input,
+.forecast-inputs input,
+.forecast-inputs select,
+.human-decision textarea,
+.review textarea,
+.conversation-composer textarea,
+.conversation-input{
+  color:var(--be-user) !important;
+}
+
+.input::placeholder,
+.conversation-composer textarea::placeholder,
+.conversation-input::placeholder{
+  color:#6fa1cf !important;
+}
+
+
+/* Final pass: fixed service captions and remaining UI text -> vivid blue (AI text stays light blue). */
+.assistant-surface .ui-label,
+.assistant-surface b.ui-label,
+.expert-result-card .ui-label,
+.method-story-details summary,
+.method-transition-title,
+.method-transition-copy,
+.method-current-action,
+.method-response-label,
+.expert-stage-kicker,
+.expert-stage-rule,
+.expert-stage-intro h2,
+.expert-stage-intro p,
+.expert-stage-next,
+.expert-stage-next b,
+.expert-info-hint,
+.header-actions button,
+.header-actions button svg{
+  color:var(--be-interface) !important;
+}
+.assistant-surface .listhead{color:var(--be-interface) !important}
+.primary svg,.header .primary svg{color:#ffffff !important}
