@@ -1168,23 +1168,53 @@ function candidateMatchesUserExample(candidate: string, exampleSnippets: string[
   });
 }
 
+function userConversationText(history: any[]): string {
+  return history
+    .filter((m: any) => m?.role === 'user')
+    .map((m: any) => normalizeExpertText(m?.content))
+    .filter(Boolean)
+    .join(' ');
+}
+
+function meaningfulTokens(text: string): string[] {
+  return Array.from(normalizeExpertText(text).toLocaleLowerCase().matchAll(/[\p{L}]{4,}/gu))
+    .map((m) => m[0])
+    .filter((x) => !/^(?:который|которая|которые|потому|поэтому|можно|нужно|будет|этот|эта|эти|если|чтобы|there|their|which|that|with|from|this|what|will|would|could|should)$/u.test(x));
+}
+
+function groundedInUser(candidate: string, userText: string): boolean {
+  const c = meaningfulTokens(candidate);
+  if (!c.length) return false;
+  const u = new Set(meaningfulTokens(userText));
+  const overlap = c.filter((x) => u.has(x)).length;
+  const nums = numbersInText(candidate);
+  const userNums = new Set(numbersInText(userText));
+  const numberGrounded = nums.length ? nums.every((n) => userNums.has(n)) : true;
+  return numberGrounded && (overlap >= 2 || (c.length <= 5 && overlap >= 1));
+}
+
 function classifyExpertRadar(out: any, history: any[]) {
   const radar = out?.radar && typeof out.radar === 'object' ? out.radar : {};
   const examples = userExampleSnippets(history);
+  const userText = userConversationText(history);
   const list = (value: any) => Array.isArray(value) ? value.filter((x: any) => x && typeof x === 'object') : [];
   const facts: any[] = [];
   const assumptions: any[] = [];
   const exampleClaims: any[] = [];
 
-  // Model classification remains the primary signal. The deterministic guard only moves
-  // an explicit user example out of "facts"; it never rejects the answer or triggers retry.
+  // The model is never blocked. This pass only decides what deserves to be shown as an
+  // established user fact. Unsupported model wording is kept, but moved to a less certain
+  // bucket so the UI never presents a model inference as something the user actually said.
   for (const raw of list(radar.facts)) {
     const item = { ...raw, text: normalizeExpertText(raw.text) };
     if (!item.text) continue;
-    if (String(raw.provenance || '').toUpperCase() === 'EXAMPLE' || candidateMatchesUserExample(item.text, examples)) {
+    const explicitExample = String(raw.provenance || '').toUpperCase() === 'EXAMPLE' || candidateMatchesUserExample(item.text, examples);
+    if (explicitExample) {
       exampleClaims.push({ ...item, provenance: 'EXAMPLE', source: 'USER_EXAMPLE' });
+    } else if (groundedInUser(item.text, userText)) {
+      facts.push({ ...item, provenance: raw.provenance || 'KNOWN', source: raw.source || 'USER_DATA' });
     } else {
-      facts.push({ ...item, provenance: raw.provenance || 'KNOWN' });
+      assumptions.push({ ...item, provenance: 'ASSUMPTION', source: raw.source || 'MODEL_INFERENCE' });
     }
   }
 
@@ -1194,14 +1224,14 @@ function classifyExpertRadar(out: any, history: any[]) {
     if (String(raw.provenance || '').toUpperCase() === 'EXAMPLE' || candidateMatchesUserExample(item.text, examples)) {
       exampleClaims.push({ ...item, provenance: 'EXAMPLE', source: 'USER_EXAMPLE' });
     } else {
-      assumptions.push({ ...item, provenance: raw.provenance || 'ASSUMPTION' });
+      assumptions.push({ ...item, provenance: raw.provenance || 'ASSUMPTION', source: raw.source || 'MODEL_INFERENCE' });
     }
   }
 
   return {
     ...radar,
-    facts,
-    assumptions,
+    facts: facts.slice(0, 8),
+    assumptions: assumptions.slice(0, 8),
     examples: exampleClaims.slice(0, 8),
   };
 }
@@ -1274,7 +1304,9 @@ Rules:
 - Use the user's actual numbers, constraints, goals and options when they exist. Never replace them with generic examples.
 - Extract concrete facts from the user's messages AND useful concrete conclusions from the assistant's previous answer.
 - Separate facts, assumptions, interpretations and values.
+- Prefer concrete, decision-relevant statements over generic commentary. If a statement does not add information specific to this person's situation, omit it from the structured radar.
 - When the user explicitly frames a value, percentage, amount, duration or scenario as an example (for example: “например”, “допустим”, “условно”, “for example”, “suppose”), preserve it as an example/working scenario, not as a confirmed fact. Mark it with provenance="EXAMPLE" and source="USER_EXAMPLE".
+- If you derive a useful number or conclusion from user-provided numbers, keep it as a derived/working conclusion rather than silently presenting it as a user-stated fact.
 - A model-generated hypothesis or scenario is not a fact merely because it sounds concrete; use provenance="ASSUMPTION" unless it is directly grounded in the user's words or is a transparent derivation.
 - Do not hide useful hypotheses or examples. Classification happens after generation and must never cause a retry or API error.
 - Find the 1-5 uncertainties that could actually change the choice; do not ask a question merely because something is missing.
