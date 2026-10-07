@@ -25,6 +25,7 @@ import { evpi, evpiRange, evpiVerdict, validateEvpiInput } from './core/evpi';
 import { brierScore } from './core/brier';
 import { cardChecksum } from './core/sha256Export';
 import { buildIcs } from './core/icsBuilder';
+import { detectUiLanguage, installUiLanguage } from './i18n/ui';
 
 // --- API helper ---
 async function api(path: string, body: unknown) {
@@ -120,6 +121,7 @@ export default function App() {
   const [geminiKey, setGeminiKey] = useState(() => { try { return localStorage.getItem('bifurcation_gemini_key_v15') || ''; } catch { return ''; } });
   const [geminiModel, setGeminiModel] = useState(() => { try { return localStorage.getItem('bifurcation_gemini_model_v15') || 'gemini-3.6-flash'; } catch { return 'gemini-3.6-flash'; } });
   const [aiHealth, setAiHealth] = useState<any>(null);
+  const [uiLanguage, setUiLanguage] = useState<'en' | 'ru'>('en');
 
   useEffect(() => {
     sessionStatus().then(s => { setAuthenticated(s.authenticated); setAuthRequired(s.required); setAuthChecked(true); }).catch(() => { setAuthChecked(true); setAuthRequired(false); setAuthenticated(true); });
@@ -148,6 +150,23 @@ export default function App() {
     () => decisions.find((d) => d.id === activeId) || decisions[0] || null,
     [decisions, activeId]
   );
+
+  // Detect the language from existing conversation content after the active decision is known.
+  useEffect(() => {
+    const existing = active?.modelSuggestions?.conversation?.find((m: any) => m?.role === 'user')?.content || active?.brief?.decision || '';
+    setUiLanguage(existing ? detectUiLanguage(String(existing)) : 'en');
+  }, [active?.id]);
+
+  useEffect(() => installUiLanguage(uiLanguage), [uiLanguage]);
+
+  useEffect(() => {
+    const onUserLanguage = (event: Event) => {
+      const text = String((event as CustomEvent)?.detail?.text || '').trim();
+      if (text) setUiLanguage(detectUiLanguage(text));
+    };
+    window.addEventListener('be:user-language', onUserLanguage);
+    return () => window.removeEventListener('be:user-language', onUserLanguage);
+  }, []);
 
   useEffect(() => {
     saveDecisions(decisions);
@@ -809,6 +828,7 @@ function BriefScreen({
   const submit = () => {
     if (!canContinue || busy) return;
     const text = b.decision.trim();
+    window.dispatchEvent(new CustomEvent('be:user-language', { detail: { text } }));
     const userMessage = { role: 'user', content: text, at: Date.now() };
     update({
       title: text.slice(0, 80) || d.title,
@@ -948,6 +968,7 @@ function ConversationScreen({
   const send = (override?: string, intent?: string) => {
     const text = (override ?? input).trim();
     if (!text || busy) return;
+    window.dispatchEvent(new CustomEvent('be:user-language', { detail: { text } }));
     const lastAt: number | undefined = history.length ? history[history.length - 1]?.at : undefined;
     const days = lastAt ? Math.floor((Date.now() - lastAt) / 86400000) : 0;
     const nextHistory = [...history, { role: 'user', content: text, at: Date.now() }];
