@@ -621,7 +621,7 @@ function Header(props: {
 
 function AssistantMessage({ children }: { children: React.ReactNode }) {
   return (
-    <div className="panel expert-result-card" style={{ maxWidth: 820, margin: '0 auto 16px', lineHeight: 1.7 }}>
+    <div className="panel expert-result-card assistant-surface" style={{ maxWidth: 820, margin: '0 auto 16px', lineHeight: 1.7 }}>
       <div>{children}</div>
     </div>
   );
@@ -984,8 +984,8 @@ function ConversationScreen({
       </div>
       {distress && <SafetyBox />}
       {nextStep && !busy && !ms.conversationCrisis && (
-        <div className="conversation-note">
-          <span>Noted for next time: </span>
+        <div className="conversation-note assistant-surface">
+          <span className="conversation-note-label">Next useful step: </span>
           <span translate="no" dir="auto">{nextStep}</span>
         </div>
       )}
@@ -1025,6 +1025,26 @@ function ExpertStageIntro({
   next: string;
 }) {
   return null;
+}
+
+// Model output remains unrestricted. This display-only pass prevents a model-invented
+// numeric example from looking like a user-provided or calculated value. It never retries
+// or rejects an AI response.
+function sanitizeDisplayExample(text: unknown, userText: string): string {
+  const value = String(text || '').trim();
+  if (!value) return '';
+  if (!/(?:например|допустим|условно|к примеру|скажем|for example|e\.g\.|suppose|let'?s say|say,?)/i.test(value)) return value;
+  const userNumbers = new Set((userText.match(/-?\d+(?:[.,]\d+)?/g) || []).map((n) => n.replace(',', '.')));
+  const actionNumbers = value.match(/-?\d+(?:[.,]\d+)?/g) || [];
+  const hasUngroundedNumber = actionNumbers.some((n) => !userNumbers.has(n.replace(',', '.')));
+  if (!hasUngroundedNumber) return value;
+
+  // Keep the action, remove only the unsupported illustrative figure.
+  return value
+    .replace(/(?:например|допустим|условно|к примеру|скажем)\s+(?:около\s+|примерно\s+)?-?\d+(?:[.,]\d+)?(?:\s*(?:евро|€|доллар(?:ов|а)?|\$|%|процентов?))?/gi, 'небольшой тестовый бюджет')
+    .replace(/(?:for example|e\.g\.|suppose|let'?s say)\s+(?:about\s+|around\s+)?-?\d+(?:[.,]\d+)?(?:\s*(?:eur|euro|€|usd|\$|%|percent))?/gi, 'a small test budget')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
 }
 
 // --- UNDERSTAND ---
@@ -1141,16 +1161,30 @@ function UnderstandScreen({
     }).slice(0, max).map((x) => compact(x));
   };
   const facts = list(d.radar?.facts, 8);
-  const assumptions = list(d.radar?.assumptions, 8);
-  const examples = list((d.radar as any)?.examples, 8);
-  const interpretations = list(d.radar?.interpretations, 6);
-  const values = list(d.radar?.values, 6);
-  const externalChecks = list(d.radar?.needsExternalCheck, 6);
   const summary = compact((d.radar as any)?.decisionSummary);
   const situation = textList((d.radar as any)?.currentSituation, 5).filter((x: string) => {
     const text = normalizeForCompare(x);
     return !facts.some((f: any) => normalizeForCompare(f.text) === text);
   });
+
+  // Facts and the short situation are already present in the user's conversation.
+  // Keep them as grounding data internally, but do not repeat them in the main result.
+  const references = [summary, ...situation, ...facts.map((x: any) => x.text)].filter(Boolean).map(normalizeForCompare);
+  const isRedundantWithGrounding = (text: string) => {
+    const tokens = new Set(normalizeForCompare(text).split(/\s+/).filter(Boolean));
+    if (tokens.size < 5) return references.includes(normalizeForCompare(text));
+    return references.some((ref) => {
+      const rt = new Set(ref.split(/\s+/).filter(Boolean));
+      const overlap = [...tokens].filter((t) => rt.has(t)).length;
+      return overlap / Math.max(tokens.size, rt.size) >= 0.78;
+    });
+  };
+
+  const assumptions = list(d.radar?.assumptions, 8).filter((x: any) => !isRedundantWithGrounding(x.text));
+  const examples = list((d.radar as any)?.examples, 8).filter((x: any) => !isRedundantWithGrounding(x.text));
+  const interpretations = list(d.radar?.interpretations, 6).filter((x: any) => !isRedundantWithGrounding(x.text));
+  const values = list(d.radar?.values, 6).filter((x: any) => !isRedundantWithGrounding(x.text));
+  const externalChecks = list(d.radar?.needsExternalCheck, 6).filter((x: any) => !isRedundantWithGrounding(x.text));
   const unresolved = (d.radar?.unknowns || []).filter((u) => !u.discarded && !u.answer && u.status !== 'USER_UNKNOWN' && u.status !== 'ACCEPTED_UNCERTAINTY');
 
   const RadarBlock = ({ title, items, hint }: { title: string; items: any[]; hint?: string }) => {
@@ -1181,7 +1215,7 @@ function UnderstandScreen({
 
       {d.radar && (
         <>
-          {(summary || situation.length || facts.length || assumptions.length || examples.length || interpretations.length || values.length || externalChecks.length) > 0 && (
+          {(summary || assumptions.length || examples.length || interpretations.length || values.length || externalChecks.length) > 0 && (
             <AssistantMessage>
               {summary && (
                 <div className="question">
@@ -1189,13 +1223,6 @@ function UnderstandScreen({
                   <p style={{ marginBottom: 0 }} dir="auto">{summary}</p>
                 </div>
               )}
-              {situation.length > 0 && (
-                <div className="question">
-                  <div className="listhead">WHAT IS CLEAR</div>
-                  <ul>{situation.map((x: string, i: number) => <li key={i} dir="auto">{x}</li>)}</ul>
-                </div>
-              )}
-              <RadarBlock title="What you know" items={facts} />
               <RadarBlock title="What is still an assumption" items={assumptions} />
               <RadarBlock title="Examples and hypothetical values" items={examples} />
               <RadarBlock title="What may be an interpretation" items={interpretations} />
@@ -1208,14 +1235,22 @@ function UnderstandScreen({
             <AssistantMessage>
               <p style={{ marginTop: 0 }}><b>Next useful actions</b></p>
               <div className="cards">
-                {(d.radar as any).nextActions.slice(0, 5).map((a: any, i: number) => (
-                  <div className="option" key={i}>
-                    <div className="optiontop" dir="auto">{a.action || a.title || `Action ${i + 1}`}</div>
-                    {a.why && <div className="option-copy" dir="auto"><b>Why:</b> {a.why}</div>}
-                    {a.measure && <div className="option-copy" dir="auto"><b>What to measure:</b> {a.measure}</div>}
-                    {a.decisionEffect && <div className="option-copy" dir="auto"><b>What changes if the result is different:</b> {a.decisionEffect}</div>}
-                  </div>
-                ))}
+                {(d.radar as any).nextActions.slice(0, 5).map((a: any, i: number) => {
+                  const userText = [
+                    d.brief?.decision,
+                    ...((d.modelSuggestions?.conversation || []) as any[])
+                      .filter((m: any) => m?.role === 'user')
+                      .map((m: any) => m.content),
+                  ].join(' ');
+                  return (
+                    <div className="option" key={i}>
+                      <div className="optiontop" dir="auto">{sanitizeDisplayExample(a.action || a.title || `Action ${i + 1}`, userText)}</div>
+                      {a.why && <div className="option-copy" dir="auto"><b>Why:</b> {sanitizeDisplayExample(a.why, userText)}</div>}
+                      {a.measure && <div className="option-copy" dir="auto"><b>What to measure:</b> {sanitizeDisplayExample(a.measure, userText)}</div>}
+                      {a.decisionEffect && <div className="option-copy" dir="auto"><b>What changes if the result is different:</b> {sanitizeDisplayExample(a.decisionEffect, userText)}</div>}
+                    </div>
+                  );
+                })}
               </div>
             </AssistantMessage>
           )}
