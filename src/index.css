@@ -504,3 +504,6 @@ button:disabled{
 .assistant-surface b.ui-label{font-size:inherit !important;font-weight:600;color:var(--be-interface) !important}
 .assistant-surface textarea{font-size:16px;font-weight:400;color:var(--be-user) !important}
 .assistant-surface textarea::placeholder{color:#6fa1cf !important;font-weight:400}
+
+/* v20.11 — saved answers stay visible: user's own words are white, the question stays AI blue. */
+.answered-card .answered-reply{color:var(--be-user) !important;font-size:16px;line-height:1.6;padding:8px 12px;margin-top:4px;border-left:3px solid var(--be-interface-border);background:#0b1b2d;border-radius:0 8px 8px 0;white-space:pre-wrap;overflow-wrap:anywhere}

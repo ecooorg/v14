@@ -1206,6 +1206,7 @@ function UnderstandScreen({
   const interpretations = list(d.radar?.interpretations, 6).filter((x: any) => !isRedundantWithGrounding(x.text));
   const values = list(d.radar?.values, 6).filter((x: any) => !isRedundantWithGrounding(x.text));
   const externalChecks = list(d.radar?.needsExternalCheck, 6).filter((x: any) => !isRedundantWithGrounding(x.text));
+  const answered = (d.radar?.unknowns || []).filter((u) => !u.discarded && (u.answer || u.status === 'USER_UNKNOWN' || u.status === 'ACCEPTED_UNCERTAINTY'));
   const unresolved = (d.radar?.unknowns || []).filter((u) => !u.discarded && !u.answer && u.status !== 'USER_UNKNOWN' && u.status !== 'ACCEPTED_UNCERTAINTY');
 
   const RadarBlock = ({ title, items, hint }: { title: string; items: any[]; hint?: string }) => {
@@ -1274,6 +1275,21 @@ function UnderstandScreen({
                 })}
               </div>
             </AssistantMessage>
+          )}
+
+          {answered.length > 0 && (
+            <div className="panel expert-result-card assistant-surface answered-card" style={{ maxWidth: 820, margin: '0 auto 16px', lineHeight: 1.7 }}>
+              <div className="listhead">Your answers</div>
+              <ul>
+                {answered.map((u) => (
+                  <li key={u.id} style={{ marginBottom: 12 }}>
+                    <div className="open-question" dir="auto">{u.question}</div>
+                    <div className="user-text answered-reply" dir="auto">{u.answer ? u.answer : "I don't know"}</div>
+                  </li>
+                ))}
+              </ul>
+              {unresolved.length > 0 && <div className="open-why" style={{ marginTop: 4 }}>Saved. The next question is below. Your answers are taken into account when the possible paths are built.</div>}
+            </div>
           )}
 
           {unresolved.length > 0 ? (
