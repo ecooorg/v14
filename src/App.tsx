@@ -459,6 +459,10 @@ export default function App() {
         </aside>}
 
         <main className="content">
+          {expertMode && d.modelSuggestions?.conversation?.length > 0 && (
+            <SharedConversationContext d={d} />
+          )}
+
           {expertMode && (
             <MethodGuide step={d.step} stageMeta={stageMeta} busy={busy} />
           )}
@@ -599,7 +603,7 @@ function Header(props: {
         {/* Primary actions: always visible, always labelled */}
         {props.onToggleExpert && (
           <button className="ghost" onClick={props.onToggleExpert}>
-            <SlidersHorizontal size={14} /> {props.expertMode ? 'Simple mode' : 'Method'}
+            <SlidersHorizontal size={14} /> {props.expertMode ? 'Simple mode' : 'Expert mode'}
           </button>
         )}
         <button className="ghost" onClick={props.onNew}><Plus size={14} /> New</button>
@@ -885,6 +889,37 @@ function BriefScreen({
         <div className="conversation-entry-actions">
           <button className="primary" disabled={!canContinue || busy} onClick={submit}>{busy ? 'Thinking…' : 'Send'} <ArrowRight size={16} /></button>
           <span className="conversation-hint">Ctrl/Cmd + Enter</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// --- SHARED CONVERSATION CONTEXT ---
+// The conversation is a single shared state. Simple mode and Expert mode
+// display the same messages; Expert mode simply adds the structured method
+// below them. No new AI request is made by this component.
+function SharedConversationContext({ d }: { d: Decision }) {
+  const history: any[] = Array.isArray(d.modelSuggestions?.conversation)
+    ? d.modelSuggestions!.conversation!
+    : [];
+  if (!history.length) return null;
+
+  return (
+    <div className="conversation-shell expert-shared-conversation">
+      <div className="method-transition-card">
+        <div className="eyebrow">YOUR CONVERSATION</div>
+        <p className="method-transition-title">The same conversation continues here.</p>
+        <p className="method-transition-copy">
+          Expert mode does not start a new case. It keeps what you already told the app
+          and the answer you received, then adds a more detailed analysis below.
+        </p>
+        <div className="conversation-thread" style={{ marginTop: 14 }}>
+          {history.map((m: any, i: number) => (
+            <div key={i} className={`conversation-message ${m.role === 'user' ? 'user' : 'assistant'}`}>
+              <div className="conversation-message-text" translate="no" dir="auto">{m.content}</div>
+            </div>
+          ))}
         </div>
       </div>
     </div>
