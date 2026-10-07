@@ -28,19 +28,32 @@ import { buildIcs } from './core/icsBuilder';
 import { detectUiLanguage, installUiLanguage } from './i18n/ui';
 
 // --- API helper ---
-async function api(path: string, body: unknown) {
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+async function api(path: string, body: unknown, files: File[] = []) {
+  const headers: Record<string, string> = {};
   try {
     const key = localStorage.getItem('bifurcation_gemini_key_v15') || '';
     const model = localStorage.getItem('bifurcation_gemini_model_v15') || '';
     if (key) headers['x-byok-key'] = key;
     if (model) headers['x-model-preference'] = model;
   } catch {}
-  const r = await fetch(path, { method: 'POST', headers, body: JSON.stringify(body) });
+
+  let requestBody: BodyInit;
+  if (files.length) {
+    const form = new FormData();
+    const objectBody = body && typeof body === 'object' ? body as Record<string, unknown> : {};
+    for (const [key, value] of Object.entries(objectBody)) {
+      if (value !== undefined) form.append(key, typeof value === 'string' ? value : JSON.stringify(value));
+    }
+    for (const file of files.slice(0, 5)) form.append('files', file, file.name);
+    requestBody = form;
+  } else {
+    headers['Content-Type'] = 'application/json';
+    requestBody = JSON.stringify(body);
+  }
+
+  const r = await fetch(path, { method: 'POST', headers, body: requestBody });
   const j = await r.json().catch(() => ({}));
   if (!r.ok || !j.success) {
-    // Preserve the real provider/server reason. AI failures are handled by runApi
-    // as a neutral status message, never by the red global error banner.
     const detail = j?.details?.upstreamMessage ? ` — ${j.details.upstreamMessage}` : '';
     const err = new Error(`${j.error || `API error ${r.status}`}${detail}`);
     (err as any).code = j.code;
@@ -48,6 +61,76 @@ async function api(path: string, body: unknown) {
     throw err;
   }
   return j;
+}
+
+async function uploadAttachment(file: File) {
+  const form = new FormData();
+  form.append('file', file);
+  const headers: Record<string, string> = {};
+  try {
+    const key = localStorage.getItem('bifurcation_gemini_key_v15') || '';
+    const model = localStorage.getItem('bifurcation_gemini_model_v15') || '';
+    if (key) headers['x-byok-key'] = key;
+    if (model) headers['x-model-preference'] = model;
+  } catch {}
+  const r = await fetch('/api/attach', { method: 'POST', headers, body: form });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok || !j.success) throw new Error(j.error || `Attachment error ${r.status}`);
+  return j.data;
+}
+
+async function downloadDocument(document: unknown, format: 'docx' | 'pdf') {
+  const r = await fetch('/api/document', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ format, document }),
+  });
+  if (!r.ok) {
+    const j = await r.json().catch(() => ({}));
+    throw new Error(j.error || `Document export failed (${r.status})`);
+  }
+  const blob = await r.blob();
+  const disposition = r.headers.get('content-disposition') || '';
+  const filename = disposition.match(/filename="([^"]+)"/)?.[1] || `document.${format}`;
+  downloadBlob(blob, filename);
+}
+
+function buildDecisionDocument(d: Decision): {
+  title: string;
+  paragraphs: string[];
+  bullets: string[];
+  sections: { title: string; paragraphs: string[]; bullets: string[] }[];
+  tables: { headers: string[]; rows: string[][] }[];
+} {
+  const history = Array.isArray(d.modelSuggestions?.conversation) ? d.modelSuggestions.conversation : [];
+  const sections: { title: string; paragraphs: string[]; bullets: string[] }[] = [];
+  sections.push({
+    title: 'Situation',
+    paragraphs: [String(d.brief?.decision || '')].filter(Boolean),
+    bullets: [
+      ...(d.brief?.facts || []),
+      ...(d.brief?.unknowns || []).map((x: string) => `Unknown: ${x}`),
+      ...(d.brief?.assumptions || []).map((x: string) => `Assumption: ${x}`),
+    ],
+  });
+  if (d.options?.length) {
+    sections.push({
+      title: 'Options',
+      paragraphs: [],
+      bullets: d.options.map((o) => `${o.title}${o.description ? ` — ${o.description}` : ''}`),
+    });
+  }
+  if (history.length) {
+    sections.push({
+      title: 'Conversation',
+      paragraphs: history.map((m: any) => `${m.role === 'user' ? 'User' : 'Assistant'}: ${String(m.content || '')}`),
+      bullets: [],
+    });
+  }
+  if (d.synthesis?.paragraphs?.length) {
+    sections.push({ title: 'Plan', paragraphs: [...d.synthesis.paragraphs], bullets: [] });
+  }
+  return { title: d.title || 'Decision note', paragraphs: [], bullets: [], sections, tables: [] };
 }
 
 const stageIndex = (s: Step) => STAGES.findIndex((x) => x.id === s);
@@ -200,12 +283,12 @@ export default function App() {
     if (activeId === id) setActiveId('');
   };
 
-  const runApi = async (path: string, body: unknown, onOk: (data: any, meta: any) => void) => {
+  const runApi = async (path: string, body: unknown, onOk: (data: any, meta: any) => void, files: File[] = []) => {
     setBusy(true);
     setError('');
     setMessage('');
     try {
-      const j = await api(path, body);
+      const j = await api(path, body, files);
       onOk(j.data, j.meta);
     } catch (e: any) {
       // Provider/API failures are operational states, not application crashes.
@@ -392,6 +475,9 @@ export default function App() {
         onExport={() =>
           downloadBlob(exportDecisionJson(d), `${d.title.slice(0, 40) || d.id}.json`)
         }
+        onExportDocument={(format) => {
+          void downloadDocument(buildDecisionDocument(d), format).catch((e) => setError(e.message));
+        }}
         onExportAll={() =>
           downloadBlob(exportAllJson(decisions), exportFileName())
         }
@@ -578,6 +664,7 @@ function MethodGuide({ step, stageMeta, busy }: { step: Step; stageMeta: typeof 
 function Header(props: {
   onNew: () => void;
   onExport?: () => void;
+  onExportDocument?: (format: 'docx' | 'pdf') => void;
   onExportAll: () => void;
   onImport: (f: File) => void;
   onBrief?: () => void;
@@ -620,7 +707,11 @@ function Header(props: {
         {/* Secondary actions: inline on wide screens, in the More menu on narrow ones */}
         <div className={`hdr-secondary${moreOpen ? ' open' : ''}`}>
           {props.expertMode && props.onBrief && <button className="ghost" onClick={props.onBrief}>Brief</button>}
-          {props.expertMode && props.onExport && <button className="ghost" onClick={props.onExport}><Download size={14} /> Export</button>}
+          {props.expertMode && props.onExport && <button className="ghost" onClick={props.onExport}><Download size={14} /> Export JSON</button>}
+          {props.expertMode && props.onExportDocument && <>
+            <button className="ghost" onClick={() => props.onExportDocument?.('docx')}><Download size={14} /> DOCX</button>
+            <button className="ghost" onClick={() => props.onExportDocument?.('pdf')}><Download size={14} /> PDF</button>
+          </>}
           {props.expertMode && <button className="ghost" onClick={props.onExportAll}><Download size={14} /> Export all</button>}
           {props.expertMode && <label className="ghost" style={{ cursor: 'pointer' }}>
             <Upload size={14} /> Import
@@ -950,10 +1041,14 @@ function ConversationScreen({
 }: {
   d: Decision;
   update: (p: Partial<Decision> | ((x: Decision) => Decision)) => void;
-  runApi: (path: string, body: unknown, onOk: (data: any, meta: any) => void) => void;
+  runApi: (path: string, body: unknown, onOk: (data: any, meta: any) => void, files?: File[]) => void;
   busy: boolean;
 }) {
   const [input, setInput] = useState('');
+  const [attachments, setAttachments] = useState<{ file: File; meta: any }[]>([]);
+  const [attachmentBusy, setAttachmentBusy] = useState(false);
+  const [attachmentError, setAttachmentError] = useState('');
+  const [generatedDocument, setGeneratedDocument] = useState<any>(null);
   const ms: any = d.modelSuggestions || {};
   const history: any[] = Array.isArray(ms.conversation) ? ms.conversation : [];
   const waitingForAssistant = history.length > 0 && history[history.length - 1]?.role === 'user';
@@ -967,7 +1062,7 @@ function ConversationScreen({
 
   const send = (override?: string, intent?: string) => {
     const text = (override ?? input).trim();
-    if (!text || busy) return;
+    if ((!text && !attachments.length) || busy) return;
     window.dispatchEvent(new CustomEvent('be:user-language', { detail: { text } }));
     const lastAt: number | undefined = history.length ? history[history.length - 1]?.at : undefined;
     const days = lastAt ? Math.floor((Date.now() - lastAt) / 86400000) : 0;
@@ -978,6 +1073,8 @@ function ConversationScreen({
       '/api/conversation',
       { brief: d.brief, history: nextHistory, state: ms.conversationState, intent, returningAfterDays: days >= 1 ? days : undefined },
       (data, meta) => {
+        if (data?.document?.title) setGeneratedDocument(data.document);
+        setAttachments([]);
         update({
           modelSuggestions: {
             ...d.modelSuggestions,
@@ -990,6 +1087,7 @@ function ConversationScreen({
           interactionState: 'PREVIEW_READY',
         });
       },
+      attachments.map((a) => a.file),
     );
   };
 
@@ -1021,8 +1119,51 @@ function ConversationScreen({
               placeholder={askedQuestion ? 'Your answer. “I don’t know” is a fine answer too.' : 'Anything to add, or something you want to look at next?'}
               rows={3}
             />
-            <button className="primary" disabled={!input.trim()} onClick={() => send()}>Send <ArrowRight size={16} /></button>
+            <button className="primary" disabled={(!input.trim() && !attachments.length) || busy} onClick={() => send()}>Send <ArrowRight size={16} /></button>
           </div>
+          <div className="conversation-tools" style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <label className="ghost" style={{ cursor: attachmentBusy ? 'wait' : 'pointer' }}>
+              <Upload size={14} /> {attachmentBusy ? 'Uploading…' : 'Attach file'}
+              <input
+                type="file"
+                hidden
+                accept=".pdf,.png,.jpg,.jpeg,.webp,.gif,.docx,.xlsx,.txt,.csv,application/pdf,image/*"
+                disabled={attachmentBusy || busy}
+                onChange={async (e) => {
+                  const f = e.target.files?.[0];
+                  e.currentTarget.value = '';
+                  if (!f) return;
+                  setAttachmentError('');
+                  setAttachmentBusy(true);
+                  try {
+                    const a = await uploadAttachment(f);
+                    setAttachments((prev) => [...prev, { file: f, meta: a }].slice(0, 5));
+                  } catch (err: any) {
+                    setAttachmentError(err.message || 'Could not attach file');
+                  } finally {
+                    setAttachmentBusy(false);
+                  }
+                }}
+              />
+            </label>
+            {attachments.map((a, i) => (
+              <span key={`${a.meta.name}-${i}`} className="ghost" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                {a.meta.name}
+                <button className="ghost" style={{ padding: 0 }} onClick={() => setAttachments((prev) => prev.filter((_, j) => j !== i))} aria-label={`Remove ${a.meta.name}`}>×</button>
+              </span>
+            ))}
+            {attachmentError && <span className="alert error" style={{ margin: 0 }}>{attachmentError}</span>}
+          </div>
+          {generatedDocument?.title && (
+            <div className="conversation-note assistant-surface">
+              <span className="conversation-note-label">Generated document: </span>
+              <span>{generatedDocument.title}</span>
+              <span style={{ display: 'inline-flex', gap: 6, marginLeft: 8 }}>
+                <button className="ghost" onClick={() => void downloadDocument(generatedDocument, 'docx').catch((e) => setAttachmentError(e.message))}>DOCX</button>
+                <button className="ghost" onClick={() => void downloadDocument(generatedDocument, 'pdf').catch((e) => setAttachmentError(e.message))}>PDF</button>
+              </span>
+            </div>
+          )}
           {userTurns >= 2 && (
             <div className="conversation-tools">
               <button className="ghost" onClick={() => send(NOTE_REQUEST, 'NOTE')}>Write this up as a short note</button>
