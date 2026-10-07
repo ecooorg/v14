@@ -525,34 +525,18 @@ export default function App() {
 }
 
 function MethodGuide({ step, stageMeta, busy }: { step: Step; stageMeta: typeof STAGES[number]; busy: boolean }) {
-  const currentLoopIndex = LOOPS.findIndex((l) => l.steps.includes(step));
-  const currentLoop = currentLoopIndex >= 0 ? LOOPS[currentLoopIndex] : LOOPS[0];
-  const loopDescriptions = [
-    'Understand the situation and find the unknowns that could change the decision.',
-    'Look beyond the obvious choices and add realistic alternatives.',
-    'Stress-test the options and expose the assumptions that could make them fail.',
-    'Turn the important assumptions into checks, thresholds, and a practical plan.',
-    'Record what happened and learn from the difference between expectation and reality.',
-  ];
-  const loopActions = [
-    'Your task: explain the situation and answer only the questions that could change the decision. “I don\'t know” is a valid answer.',
-    'Your task: review the possible paths. You are not choosing yet.',
-    'Your task: look at the strongest reasons the paths could fail.',
-    'Your task: decide what to do, or define the cheapest useful check before committing.',
-    'Your task: later, compare what you expected with what actually happened.',
-  ];
-  const stageNumber = Math.max(1, currentLoopIndex + 1);
+  const currentLoopIndex = Math.max(0, LOOPS.findIndex((l) => l.steps.includes(step)));
   return (
-    <div className="method-guide">
-      <div className="method-guide-head">
-        <div>
-          <div className="eyebrow">DEEP DECISION</div>
-          <h1>Work through your decision step by step</h1>
-          <p>You do not need to know the method. The app will guide you. At each stage, just do the small task shown below.</p>
+    <div className="method-guide" style={{ padding: '14px 18px', marginBottom: 16 }}>
+      <div className="method-guide-head" style={{ alignItems: 'center' }}>
+        <div style={{ minWidth: 0 }}>
+          <div className="eyebrow">EXPERT ANALYSIS</div>
+          <h1 style={{ marginBottom: 4 }}>Your decision, step by step</h1>
+          <p style={{ margin: 0 }}>The analysis below is built from your conversation and the information already found.</p>
         </div>
         {busy && <div className="method-busy"><div className="spinner" /> Working…</div>}
       </div>
-      <div className="method-stepper" aria-label="Decision progress">
+      <div className="method-stepper" aria-label="Expert analysis progress" style={{ marginTop: 12 }}>
         {LOOPS.map((loop, i) => {
           const active = i === currentLoopIndex;
           const done = i < currentLoopIndex;
@@ -564,12 +548,10 @@ function MethodGuide({ step, stageMeta, busy }: { step: Step; stageMeta: typeof 
           );
         })}
       </div>
-      <div className="method-current">
+      <div className="method-current" style={{ marginTop: 10, padding: '10px 12px' }}>
         <div>
-          <span className="method-current-label">YOU ARE HERE · STEP {stageNumber} OF {LOOPS.length}</span>
+          <span className="method-current-label">CURRENT ANALYSIS</span>
           <strong>{stageMeta.label}</strong>
-          <span>{loopDescriptions[currentLoopIndex] || loopDescriptions[0]}</span>
-          <span className="method-current-action">{loopActions[currentLoopIndex] || loopActions[0]}</span>
         </div>
         <div className="method-current-count">{currentLoopIndex + 1} / {LOOPS.length}</div>
       </div>
@@ -905,23 +887,41 @@ function SharedConversationContext({ d }: { d: Decision }) {
     : [];
   if (!history.length) return null;
 
+  const firstUser = history.find((m: any) => m.role === 'user');
+  const lastAssistant = [...history].reverse().find((m: any) => m.role === 'assistant');
+  const compact = (value: unknown) => String(value || '').replace(/\s+/g, ' ').trim();
+  const preview = compact(lastAssistant?.content || firstUser?.content || '');
+
   return (
     <div className="conversation-shell expert-shared-conversation">
-      <div className="method-transition-card">
-        <div className="eyebrow">YOUR CONVERSATION</div>
-        <p className="method-transition-title">The same conversation continues here.</p>
-        <p className="method-transition-copy">
-          Expert mode does not start a new case. It keeps what you already told the app
-          and the answer you received, then adds a more detailed analysis below.
-        </p>
-        <div className="conversation-thread" style={{ marginTop: 14 }}>
-          {history.map((m: any, i: number) => (
-            <div key={i} className={`conversation-message ${m.role === 'user' ? 'user' : 'assistant'}`}>
-              <div className="conversation-message-text" translate="no" dir="auto">{m.content}</div>
-            </div>
-          ))}
+      <details className="method-transition-card" style={{ marginBottom: 16 }}>
+        <summary style={{ cursor: 'pointer', listStylePosition: 'inside' }}>
+          <span className="eyebrow" style={{ display: 'inline', marginRight: 8 }}>YOUR CONVERSATION</span>
+          <b>The original conversation is preserved here</b>
+        </summary>
+        <div style={{ marginTop: 10 }}>
+          <div
+            dir="auto"
+            style={{
+              color: '#9fb0c2',
+              display: '-webkit-box',
+              WebkitLineClamp: 4,
+              WebkitBoxOrient: 'vertical',
+              overflow: 'hidden',
+              lineHeight: 1.55,
+            } as React.CSSProperties}
+          >
+            {preview}
+          </div>
+          <div className="conversation-thread" style={{ marginTop: 14 }}>
+            {history.map((m: any, i: number) => (
+              <div key={i} className={`conversation-message ${m.role === 'user' ? 'user' : 'assistant'}`}>
+                <div className="conversation-message-text" translate="no" dir="auto">{m.content}</div>
+              </div>
+            ))}
+          </div>
         </div>
-      </div>
+      </details>
     </div>
   );
 }
@@ -1064,7 +1064,7 @@ function UnderstandScreen({
   useEffect(() => {
     if (d.radar || busy || understandStarted.current || !d.brief.decision) return;
     understandStarted.current = true;
-    runApi('/api/understand', { brief: d.brief }, (data, meta) => {
+    runApi('/api/understand', { brief: d.brief, history: d.modelSuggestions?.conversation || [] }, (data, meta) => {
       const neutralItems = data?.neutralization?.items || [];
       const radarData = data?.radar || {};
       const mapClaim = (c: any, kind: string) => ({
@@ -1146,12 +1146,14 @@ function UnderstandScreen({
 
   return (
     <div className="friendly-flow">
-      <ExpertStageIntro
-        step="1 · UNDERSTAND"
-        title="First, make the situation clear"
-        task="You do not need to solve the decision yet. The app separates what you told it from assumptions, values, and open questions that could change the decision."
-        next="answer the important questions below. “I don't know” is a useful answer — it marks something worth checking."
-      />
+      <div className="expert-stage-intro">
+        <div className="expert-stage-intro-top">
+          <span className="expert-stage-kicker">YOUR DECISION · CURRENT PICTURE</span>
+          <span className="expert-stage-rule">Based on what you have already told us</span>
+        </div>
+        <h2>Here is the situation broken into decision-relevant parts</h2>
+        <p>We keep your original conversation intact, then separate facts, assumptions, values, outside checks, and the unknowns that could actually change the decision.</p>
+      </div>
 
       <div className="method-transition-card">
         <div className="eyebrow">YOUR SITUATION</div>
