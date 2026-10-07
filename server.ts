@@ -582,7 +582,7 @@ async function generate(
           model,
           contents,
           config: {
-            systemInstruction: BASE_SYSTEM,
+            systemInstruction: /[\u0400-\u04FF]/.test(inputForNumbers) ? `${BASE_SYSTEM}\nOUTPUT LANGUAGE: the user writes in Russian, so write every human-readable string in Russian (never English). Keep JSON keys and enum values exactly as specified.` : BASE_SYSTEM,
             responseMimeType: 'application/json',
             temperature: repairHint ? 0.2 : 0.25,
             abortSignal: ctrl.signal,
@@ -1449,7 +1449,9 @@ The formal expansion must contain exactly 3–5 additional options beyond the us
 Each option must change the shape of the decision (timing, sequence, a temporary test, a reversible commitment, splitting the decision, scale or scope, changing conditions instead of choosing another object, reaching the goal another way, reframing the goal, keeping several futures open, or first obtaining the deciding fact). Another item on the same axis as the user's options does not count. Every option must be a concrete action this user could really take, derived only from their own facts; in "description" say what it changes in the original dilemma. Count the exit cost honestly: a pilot that costs almost as much as the full step is not a pilot. No ranking, recommendation, winner, score, or invented facts/numbers.
 The radar's "unknowns" may contain the user's own answers (field "answer", with status USER_CONFIRMED) or "I don't know" marks (USER_UNKNOWN). Treat each user answer as a confirmed fact from the user: use it in the knowledge map under "known", shape the options around it, and never re-ask or contradict it. Treat USER_UNKNOWN items as genuinely unknown (keep them under "unknown" and prefer GET_FACT_FIRST options for them). Do not invent answers the user did not give.
 LANGUAGE: ${/[\u0400-\u04FF]/.test(input) ? 'The user writes in Russian. Write EVERY human-readable string (knowledgeMap items, option title, description, keyAssumption, exitCost, cheapestTest) in Russian.' : "Write every human-readable string in the language of the user's input."} Keep JSON keys and enum values (kind, door) exactly as specified. keyAssumption, exitCost and cheapestTest must each be one short, concrete sentence, never a single word like Low or Zero.
-SPECIFICITY: Every option must be about THIS user's actual situation (use the concrete subject, facts, assumptions and answers from the input). Never output generic placeholder options such as "Deconstruct the binary", "Third way" or "Choose between A and B" unless the user actually named alternatives A and B. If the user named no alternatives, build options from the problem itself and from the user's own answers.`;
+SPECIFICITY: Every option must be about THIS user's actual situation (use the concrete subject, facts, assumptions and answers from the input). Never output generic placeholder options such as "Deconstruct the binary", "Third way" or "Choose between A and B" unless the user actually named alternatives A and B. If the user named no alternatives, build options from the problem itself and from the user's own answers.
+INPUT (JSON):
+${input}`;
     const { data: out, meta, issues } = await generateChecked(prompt, input, 'expand', (d: any) => {
       const opts = Array.isArray(d?.options) ? d.options : [];
       const found: string[] = [];
@@ -1483,7 +1485,9 @@ Return JSON: { "rounds": [
   { "role":"PREFERRED", "targetOptionId":"...", "objections":[{"id","argument","hiddenAssumption","failureMode","whatMustBeTrueForCritiqueToBeWeak","verifiability":"TESTABLE"|"SPECULATION"}] },
   { "role":"OPPOSITE", "targetOptionId":"...", "objections":[{"id","argument","hiddenAssumption","failureMode","whatMustBeTrueForCritiqueToBeWeak","verifiability":"TESTABLE"|"SPECULATION"}] }
 ] }
-3–5 strongest objections per option. Objections must be concrete and tied to this user's facts; generic objections that fit any plan are not allowed. Mark an objection TESTABLE only if a specific observation could confirm or refute it. Do not soften critique, do not favor either option. No invented facts or numbers.`;
+3–5 strongest objections per option. Objections must be concrete and tied to this user's facts; generic objections that fit any plan are not allowed. Mark an objection TESTABLE only if a specific observation could confirm or refute it. Do not soften critique, do not favor either option. No invented facts or numbers.
+INPUT (JSON):
+${input}`;
     const { data, meta, issues } = await generateChecked(prompt, input, 'redteam-pair', (d: any) =>
       (Array.isArray(d?.rounds) && d.rounds.length === 2 ? [] : ['Expected two red-team rounds']), requestByokKey, requestPreferredModel);
     if (issues.length) return fail(res, 500, issues[0], 'SCHEMA');
