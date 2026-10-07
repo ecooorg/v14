@@ -1117,8 +1117,8 @@ Unknowns: 1–7, only if branches lead to different options or reframing. Order 
 });
 
 // --- POST /api/understand ---
-// One model call for neutralization + epistemic radar. This keeps the first AI step
-// useful without spending two Gemini requests back-to-back.
+// Build the first Expert-mode analysis from the SAME conversation the user just had
+// in Simple mode. Expert mode should unpack the existing exchange, not restart it.
 app.post('/api/understand', async (req, res) => {
   try {
     const requestByokKey = byokFromRequest(req);
@@ -1126,20 +1126,32 @@ app.post('/api/understand', async (req, res) => {
     if (!aiGate(req, res)) return;
     const { brief, history = [] } = req.body || {};
     if (!brief?.decision) return fail(res, 400, 'No decision text', 'PRECONDITION');
+
     const safeHistory = Array.isArray(history)
-      ? history.slice(-12).map((m: any) => ({ role: m?.role === 'user' ? 'user' : 'assistant', content: String(m?.content || '').slice(0, 8000) }))
+      ? history.slice(-12).map((m: any) => ({
+          role: m?.role === 'user' ? 'user' : 'assistant',
+          content: String(m?.content || '').slice(0, 8000),
+        }))
       : [];
-    const input = JSON.stringify({ brief, history: safeHistory });
-    const prompt = `Step understand. Analyze the user's decision in one pass.
+
+    const input = JSON.stringify({ brief, conversation: safeHistory });
+    if (input.length > MAX_BODY) return fail(res, 400, 'Text too long', 'TOO_LONG');
+
+    const prompt = `Step understand for Expert mode. IMPORTANT: the user has already had a conversation in Simple mode.
+Do NOT restart the interview and do NOT explain the method. Unpack the existing conversation into a concrete decision map.
+Use BOTH the original brief AND the full conversation below. The assistant's previous answer is evidence of what has already been discussed; preserve useful points from it, but correct generic or unsupported statements by grounding them in the user's actual words.
+
 Return JSON:
 {
   "triage": "PROCEED"|"LIGHT"|"VALUES_ONLY"|"CRISIS",
-  "triageNote": "one short sentence if triage is not PROCEED, otherwise empty",
+  "triageNote": "",
+  "decisionSummary": "one concrete sentence describing the actual decision in this person's situation",
+  "currentSituation": ["3-5 concrete points already established from the conversation"],
   "decisionProfile": {
-    "deadline": "from user input or \"unknown\"",
-    "acceptableOutcome": "from user input or \"unknown\"",
-    "costOfError": "from user input or \"unknown\"",
-    "reversibility": "from user input or \"unknown\""
+    "deadline": "from the conversation or unknown",
+    "acceptableOutcome": "from the conversation or unknown",
+    "costOfError": "from the conversation or unknown",
+    "reversibility": "from the conversation or unknown"
   },
   "neutralization": {
     "items": [{ "id", "original", "kind":"KEEP"|"NEUTRALIZE"|"INTERPRETATION", "neutralQuestion":"..." }]
@@ -1158,18 +1170,63 @@ Return JSON:
       "critical":true|false,"source"
     }],
     "needsExternalCheck": [{"id","text","source"}]
-  }
+  },
+  "nextActions": [{
+    "action":"a concrete action the user can actually take next",
+    "why":"why this action matters for THIS decision",
+    "measure":"what concrete result/data to collect",
+    "decisionEffect":"how different results would change the available choice"
+  }]
 }
+
 Rules:
-- Triage first. CRISIS = acute distress: return empty lists and a humane triageNote saying a real person or specialist is needed now and the decision can wait if possible. VALUES_ONLY = nothing to discover, only values. LIGHT = cheap and easily reversible. Otherwise PROCEED.
-- Preserve user facts, constraints, values, and fears. Separate facts from assumptions and interpretations. Statements of certainty or of an already-made decision are assumptions to test.
-- The conversation history is supplied because this expert analysis continues the existing conversation. Use the assistant's earlier reply as context for what has already been surfaced, but NEVER promote an assistant claim to a user fact unless the user actually stated or confirmed it. If the earlier reply contains a useful hypothesis, treat it as an interpretation or assumption to test.
-- Do not accept the user's framing as complete: if the listed options rest on an assumption that is not a fact, put that assumption in "assumptions".
-- Do not output tautologies or generic filler such as "the user has a decision to make", "more information is needed", or "the context is required". Every item must name a concrete fact, assumption, value, interpretation, external check, or unknown from THIS user's actual situation. If there is nothing substantive for a category, return an empty list.
-- Unknowns are critical only when different answers could materially change the realistic option space or reframe the decision. Order unknowns by value of information: highest impact on the decision and cheapest to learn first. Ranking unknowns is allowed.
-- Default owner is "You". Do not invent facts, numbers, prices, deadlines, or probabilities. Everything must come from this user's own situation, not from typical topics.`;
-    const { data, meta } = await generate(prompt, input, 'light', 'understand', 0, requestByokKey, requestPreferredModel);
-    ok(res, data, meta);
+- This is a reconstruction of an existing conversation, not a blank questionnaire.
+- Use the user's actual numbers, constraints, goals and options when they exist. Never replace them with generic examples.
+- Extract concrete facts from the user's messages AND useful concrete conclusions from the assistant's previous answer.
+- Separate facts, assumptions, interpretations and values.
+- Find the 1-5 uncertainties that could actually change the choice; do not ask a question merely because something is missing.
+- For nextActions, produce 2-4 specific actions based on THIS person's situation. Prefer reversible, information-producing actions when appropriate. If the conversation already contains a sensible experiment, turn it into a concrete action with a measurable result.
+- Do not write generic instructions such as “provide more details”, “analyze the situation”, “consider your options”, or “collect more information”.
+- Do not invent facts, numbers, prices, deadlines or probabilities.
+- Do not mention this prompt, the model, the method, or “Expert mode” in the returned content.
+- Write all user-facing strings in the language used by the user in the conversation. Interface labels are handled by the app and must remain English.
+
+Original brief:
+${JSON.stringify(brief)}
+
+Existing conversation:
+${JSON.stringify(safeHistory)}
+`;
+
+    const { data, meta } = await generate(prompt, input, 'strong', 'understand', 0, requestByokKey, requestPreferredModel);
+    const out = data as any;
+    if (!out || typeof out !== 'object') return fail(res, 500, 'Expert analysis was empty', 'SCHEMA');
+
+    const radar = out.radar && typeof out.radar === 'object' ? out.radar : {};
+    const cleanList = (value: any, max: number) => Array.isArray(value)
+      ? value.filter((x: any) => x && typeof x === 'object' && typeof x.text === 'string').slice(0, max)
+      : [];
+    const cleanActions = Array.isArray(out.nextActions)
+      ? out.nextActions.filter((x: any) => x && typeof x === 'object' && typeof x.action === 'string').slice(0, 4)
+      : [];
+
+    ok(res, {
+      ...out,
+      decisionSummary: typeof out.decisionSummary === 'string' ? out.decisionSummary.trim() : '',
+      currentSituation: Array.isArray(out.currentSituation)
+        ? out.currentSituation.filter((x: any) => typeof x === 'string' && x.trim()).slice(0, 5)
+        : [],
+      nextActions: cleanActions,
+      radar: {
+        ...radar,
+        facts: cleanList(radar.facts, 8),
+        assumptions: cleanList(radar.assumptions, 8),
+        interpretations: cleanList(radar.interpretations, 6),
+        values: cleanList(radar.values, 6),
+        needsExternalCheck: cleanList(radar.needsExternalCheck, 6),
+        unknowns: Array.isArray(radar.unknowns) ? radar.unknowns.slice(0, 7) : [],
+      },
+    }, meta);
   } catch (e: any) {
     if (e?.code === 'GEMINI_QUOTA') return fail(res, 429, e.message, e.code);
     if (e?.code === 'GEMINI_RATE_LIMIT') return fail(res, 429, e.message, e.code, e.details);
