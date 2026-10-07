@@ -1117,6 +1117,95 @@ Unknowns: 1–7, only if branches lead to different options or reframing. Order 
 });
 
 // --- POST /api/understand ---
+// --- Expert provenance guard (post-generation, never a model-blocking validator) ---
+// The model is allowed to say anything useful. These helpers only decide how information
+// is classified for the Expert UI after the answer already exists.
+const EXAMPLE_CUES = [
+  /\b(?:например|допустим|предположим|условно|скажем|пусть|для примера|как пример)\b/iu,
+  /\b(?:for example|e\.g\.|suppose|let's say|say|hypothetically|as an example)\b/i,
+];
+
+function normalizeExpertText(value: unknown): string {
+  return String(value ?? '').replace(/\s+/g, ' ').trim();
+}
+
+function userExampleSnippets(history: any[]): string[] {
+  const out: string[] = [];
+  for (const m of history) {
+    if (m?.role !== 'user') continue;
+    const text = normalizeExpertText(m?.content);
+    if (!text) continue;
+    for (const cue of EXAMPLE_CUES) {
+      const match = text.match(cue);
+      if (!match) continue;
+      // Keep a bounded window around the cue. This is only evidence for classification,
+      // never a source of new facts.
+      const start = Math.max(0, (match.index || 0) - 90);
+      const end = Math.min(text.length, (match.index || 0) + match[0].length + 180);
+      out.push(text.slice(start, end));
+      break;
+    }
+  }
+  return out.slice(0, 12);
+}
+
+function hasExampleCue(text: string): boolean {
+  return EXAMPLE_CUES.some((re) => re.test(text));
+}
+
+function numbersInText(text: string): string[] {
+  return Array.from(text.matchAll(/(?:\d+[\d\s,.]*\d|\d+)(?:\s*[%€$£]|\s*(?:евро|eur|usd|доллар(?:ов|а)?|месяц(?:а|ев)?|недел(?:я|и|ь)|лет|год(?:а|ов)?))?/giu))
+    .map((m) => normalizeExpertText(m[0]).toLowerCase())
+    .filter(Boolean);
+}
+
+function candidateMatchesUserExample(candidate: string, exampleSnippets: string[]): boolean {
+  const candidateNumbers = numbersInText(candidate);
+  if (!candidateNumbers.length) return hasExampleCue(candidate);
+  return exampleSnippets.some((snippet) => {
+    const sourceNumbers = numbersInText(snippet);
+    return candidateNumbers.some((n) => sourceNumbers.includes(n));
+  });
+}
+
+function classifyExpertRadar(out: any, history: any[]) {
+  const radar = out?.radar && typeof out.radar === 'object' ? out.radar : {};
+  const examples = userExampleSnippets(history);
+  const list = (value: any) => Array.isArray(value) ? value.filter((x: any) => x && typeof x === 'object') : [];
+  const facts: any[] = [];
+  const assumptions: any[] = [];
+  const exampleClaims: any[] = [];
+
+  // Model classification remains the primary signal. The deterministic guard only moves
+  // an explicit user example out of "facts"; it never rejects the answer or triggers retry.
+  for (const raw of list(radar.facts)) {
+    const item = { ...raw, text: normalizeExpertText(raw.text) };
+    if (!item.text) continue;
+    if (String(raw.provenance || '').toUpperCase() === 'EXAMPLE' || candidateMatchesUserExample(item.text, examples)) {
+      exampleClaims.push({ ...item, provenance: 'EXAMPLE', source: 'USER_EXAMPLE' });
+    } else {
+      facts.push({ ...item, provenance: raw.provenance || 'KNOWN' });
+    }
+  }
+
+  for (const raw of list(radar.assumptions)) {
+    const item = { ...raw, text: normalizeExpertText(raw.text) };
+    if (!item.text) continue;
+    if (String(raw.provenance || '').toUpperCase() === 'EXAMPLE' || candidateMatchesUserExample(item.text, examples)) {
+      exampleClaims.push({ ...item, provenance: 'EXAMPLE', source: 'USER_EXAMPLE' });
+    } else {
+      assumptions.push({ ...item, provenance: raw.provenance || 'ASSUMPTION' });
+    }
+  }
+
+  return {
+    ...radar,
+    facts,
+    assumptions,
+    examples: exampleClaims.slice(0, 8),
+  };
+}
+
 // Build the first Expert-mode analysis from the SAME conversation the user just had
 // in Simple mode. Expert mode should unpack the existing exchange, not restart it.
 app.post('/api/understand', async (req, res) => {
@@ -1157,8 +1246,9 @@ Return JSON:
     "items": [{ "id", "original", "kind":"KEEP"|"NEUTRALIZE"|"INTERPRETATION", "neutralQuestion":"..." }]
   },
   "radar": {
-    "facts": [{"id","text","source"}],
-    "assumptions": [{"id","text","source"}],
+    "facts": [{"id","text","source","provenance":"KNOWN"}],
+    "assumptions": [{"id","text","source","provenance":"ASSUMPTION"}],
+    "examples": [{"id","text","source":"USER_EXAMPLE","provenance":"EXAMPLE"}],
     "interpretations": [{"id","text","source"}],
     "values": [{"id","text","source"}],
     "unknowns": [{
@@ -1184,6 +1274,9 @@ Rules:
 - Use the user's actual numbers, constraints, goals and options when they exist. Never replace them with generic examples.
 - Extract concrete facts from the user's messages AND useful concrete conclusions from the assistant's previous answer.
 - Separate facts, assumptions, interpretations and values.
+- When the user explicitly frames a value, percentage, amount, duration or scenario as an example (for example: “например”, “допустим”, “условно”, “for example”, “suppose”), preserve it as an example/working scenario, not as a confirmed fact. Mark it with provenance="EXAMPLE" and source="USER_EXAMPLE".
+- A model-generated hypothesis or scenario is not a fact merely because it sounds concrete; use provenance="ASSUMPTION" unless it is directly grounded in the user's words or is a transparent derivation.
+- Do not hide useful hypotheses or examples. Classification happens after generation and must never cause a retry or API error.
 - Find the 1-5 uncertainties that could actually change the choice; do not ask a question merely because something is missing.
 - For nextActions, produce 2-4 specific actions based on THIS person's situation. Prefer reversible, information-producing actions when appropriate. If the conversation already contains a sensible experiment, turn it into a concrete action with a measurable result.
 - Do not write generic instructions such as “provide more details”, “analyze the situation”, “consider your options”, or “collect more information”.
@@ -1202,9 +1295,9 @@ ${JSON.stringify(safeHistory)}
     const out = data as any;
     if (!out || typeof out !== 'object') return fail(res, 500, 'Expert analysis was empty', 'SCHEMA');
 
-    const radar = out.radar && typeof out.radar === 'object' ? out.radar : {};
+    const radar = classifyExpertRadar(out, safeHistory);
     const cleanList = (value: any, max: number) => Array.isArray(value)
-      ? value.filter((x: any) => x && typeof x === 'object' && typeof x.text === 'string').slice(0, max)
+      ? value.filter((x: any) => x && typeof x === 'object' && typeof x.text === 'string' && x.text.trim()).slice(0, max)
       : [];
     const cleanActions = Array.isArray(out.nextActions)
       ? out.nextActions.filter((x: any) => x && typeof x === 'object' && typeof x.action === 'string').slice(0, 4)
@@ -1221,6 +1314,7 @@ ${JSON.stringify(safeHistory)}
         ...radar,
         facts: cleanList(radar.facts, 8),
         assumptions: cleanList(radar.assumptions, 8),
+        examples: cleanList(radar.examples, 8),
         interpretations: cleanList(radar.interpretations, 6),
         values: cleanList(radar.values, 6),
         needsExternalCheck: cleanList(radar.needsExternalCheck, 6),
