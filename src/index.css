@@ -460,3 +460,28 @@ button:disabled{
 }
 .assistant-surface .listhead{color:var(--be-interface) !important}
 .primary svg,.header .primary svg{color:#ffffff !important}
+
+
+/* v20.9 — header and buttons: never overflow, never more than two rows on narrow screens. */
+.ghost,.primary,.danger,.chip,.mini-actions button,.decision-buttons button,.question-actions button{
+  max-width:100%;line-height:1.2;overflow-wrap:anywhere;text-align:center}
+.actions,.mini-actions,.decision-buttons,.question-actions{flex-wrap:wrap}
+@media(max-width:600px){
+  .ghost,.primary,.danger,.chip,.mini-actions button,.decision-buttons button,.question-actions button{font-size:12px}
+}
+@media(max-width:900px){
+  /* Row 1: five primary buttons share the width equally. Row 2: the More menu as a 3-column grid (max 2 rows). */
+  .header-actions{display:grid !important;grid-template-columns:repeat(5,minmax(0,1fr));gap:6px;width:100%}
+  .header-actions>.ghost{min-width:0 !important;padding-left:6px !important;padding-right:6px !important;overflow:hidden;white-space:nowrap !important;gap:5px}
+  .header-actions .lbl{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .hdr-secondary,.hdr-secondary.open{grid-column:1/-1}
+  .hdr-secondary.open{display:grid !important;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}
+  .hdr-secondary .ghost{min-width:0 !important;padding-left:6px !important;padding-right:6px !important;font-size:12px !important;white-space:nowrap !important;overflow:hidden;text-overflow:ellipsis}
+  .hdr-msg{grid-column:1/-1;font-size:11px}
+}
+@media(max-width:600px){
+  /* Phones: primary buttons show icons only (labels become tooltips). */
+  .header-actions>.ghost .lbl{display:none}
+  .header-actions>.ghost{padding-left:0 !important;padding-right:0 !important}
+  .hdr-secondary .ghost{font-size:11px !important}
+}

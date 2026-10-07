@@ -599,23 +599,23 @@ function Header(props: {
       <div className="header-actions">
         {/* Primary actions: always visible, always labelled */}
         {props.onToggleExpert && (
-          <button className="ghost" onClick={props.onToggleExpert}>
-            <SlidersHorizontal size={14} /> {props.expertMode ? 'Simple mode' : 'Expert mode'}
+          <button className="ghost" onClick={props.onToggleExpert} title={props.expertMode ? 'Simple mode' : 'Expert mode'}>
+            <SlidersHorizontal size={14} /> <span className="lbl">{props.expertMode ? 'Simple mode' : 'Expert mode'}</span>
           </button>
         )}
-        <button className="ghost" onClick={props.onNew}><Plus size={14} /> New</button>
+        <button className="ghost" onClick={props.onNew} title="New"><Plus size={14} /> <span className="lbl">New</span></button>
         {props.onDrive && (
           <button className="ghost" onClick={props.onDrive} disabled={props.driveBusy}>
-            {props.driveConnected ? <CloudUpload size={14} /> : <Cloud size={14} />} {driveLabel}
+            {props.driveConnected ? <CloudUpload size={14} /> : <Cloud size={14} />} <span className="lbl">{driveLabel}</span>
           </button>
         )}
         {props.onHistory && (
           props.historyAvailable === false
-            ? <button className="ghost" disabled title="This browser cannot store data (private mode?)"><HistoryIcon size={14} /> History not saved</button>
-            : <button className="ghost" onClick={props.onHistory}><HistoryIcon size={14} /> History</button>
+            ? <button className="ghost" disabled title="This browser cannot store data (private mode?)"><HistoryIcon size={14} /> <span className="lbl">History not saved</span></button>
+            : <button className="ghost" onClick={props.onHistory} title="History"><HistoryIcon size={14} /> <span className="lbl">History</span></button>
         )}
-        <button className="ghost hdr-more-btn" aria-expanded={moreOpen} onClick={() => setMoreOpen((v) => !v)}>
-          <MoreHorizontal size={14} /> More
+        <button className="ghost hdr-more-btn" title="More" aria-expanded={moreOpen} onClick={() => setMoreOpen((v) => !v)}>
+          <MoreHorizontal size={14} /> <span className="lbl">More</span>
         </button>
         {/* Secondary actions: inline on wide screens, in the More menu on narrow ones */}
         <div className={`hdr-secondary${moreOpen ? ' open' : ''}`}>
