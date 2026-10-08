@@ -30,13 +30,19 @@ export function exportAllJson(decisions: Decision[]): Blob {
   );
 }
 
+/** Saves a file. The link stays alive briefly so Safari keeps the file name. */
 export function downloadBlob(blob: Blob, filename: string) {
   const u = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = u;
   a.download = filename;
+  a.style.display = 'none';
+  document.body.appendChild(a);
   a.click();
-  URL.revokeObjectURL(u);
+  setTimeout(() => {
+    a.remove();
+    URL.revokeObjectURL(u);
+  }, 10000);
 }
 
 const VALID_STEPS = new Set([
