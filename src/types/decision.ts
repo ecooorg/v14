@@ -335,6 +335,8 @@ export interface Decision {
   parentCycleId?: string;
   triage?: Triage;
   brief: DecisionBrief;
+  /** Files of the decision (expert stages). Optional, no migration needed. Simple-mode files stay on chat messages; one collector merges both. */
+  files?: any[];
   neutralization?: NeutralItem[];
   neutralizationConfirmed?: boolean;
   radar?: Radar;
