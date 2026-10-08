@@ -24,7 +24,7 @@ import { AutoInput, AutoTextarea } from './components/AutoGrow';
 import { decisionToDocument } from './utils/decisionDocument';
 import { FilesPanel, CopyButton, MessageExtras, ProgramFilesManager } from './components/ConversationFiles';
 import {
-  Attachment, DocumentSpec, applyAttachmentNotes, attachmentOnlyText, collectAttachments,
+  Attachment, DocumentSpec, applyAttachmentNotes, attachmentOnlyText, collectAttachments, collectDecisionAttachments,
   conversationToDocument, fitRequest, historyForRequest,
 } from './utils/attachments';
 import { migrateAttachmentsFromDecisions, exportProgramFilesPayload, importProgramFilesPayload, archiveAgentDocument, archiveAttachment } from './utils/programFiles';
@@ -221,7 +221,14 @@ export default function App() {
     setError('');
     setMessage('');
     try {
-      const j = await api(path, body);
+      // B1: every expert request carries the decision's files (both sources, images as their saved description only).
+      let sendBody = body;
+      if (path !== '/api/conversation' && body && typeof body === 'object' && !(body as any).attachments) {
+        const cur = decisions.find((x) => x.id === activeId) || decisions[0];
+        const att = cur ? collectDecisionAttachments(cur, undefined, true) : [];
+        if (att.length) sendBody = fitRequest({ ...(body as any), attachments: att });
+      }
+      const j = await api(path, sendBody);
       onOk(j.data, j.meta);
     } catch (e: any) {
       // Provider/API failures are operational states, not application crashes.
@@ -548,9 +555,9 @@ export default function App() {
           </ErrorBoundary>
           {expertMode && d.step !== 'BRIEF' && (
             <FilesPanel
-              files={[]}
-              onFilesChange={() => {}}
-              hideAdd
+              files={Array.isArray(d.files) ? d.files : []}
+              onFilesChange={(f) => update({ files: f })}
+              disabled={busy}
               expertMode
               title={d.title}
               history={Array.isArray((d.modelSuggestions as any)?.conversation) ? (d.modelSuggestions as any).conversation : []}
@@ -916,7 +923,7 @@ function BriefScreen({
       step: 'UNDERSTAND',
       interactionState: 'UNDERSTANDING',
     });
-    runApi('/api/conversation', fitRequest({ brief: { ...b, decision: text }, history: historyForRequest([userMessage]), attachments: collectAttachments([userMessage]), intent }), (data, meta) => {
+    runApi('/api/conversation', fitRequest({ brief: { ...b, decision: text }, history: historyForRequest([userMessage]), attachments: collectDecisionAttachments(d, [userMessage]), intent }), (data, meta) => {
       const assistant: any = { role: 'assistant', content: data.reply, at: Date.now(), ...(data.document ? { document: data.document } : {}) };
       setFiles([]);
       update({
@@ -1130,7 +1137,7 @@ function ConversationScreen({
     });
     runApi(
       '/api/conversation',
-      fitRequest({ brief: d.brief, history: historyForRequest(nextHistory), attachments: collectAttachments(nextHistory), state: ms.conversationState, intent, returningAfterDays: days >= 1 ? days : undefined }),
+      fitRequest({ brief: d.brief, history: historyForRequest(nextHistory), attachments: collectDecisionAttachments(d, nextHistory), state: ms.conversationState, intent, returningAfterDays: days >= 1 ? days : undefined }),
       (data, meta) => {
         pendingRef.current = null;
         update({
