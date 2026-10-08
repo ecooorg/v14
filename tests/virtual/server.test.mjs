@@ -71,52 +71,67 @@ try {
     assert.equal((await (await fetch(srv.base + '/api/session', { headers: { cookie } })).json()).authenticated, true);
   });
 
-  // 1b. File attachments are validated and never persisted.
-  await t('attachment validation accepts text files without returning file content', async () => {
-    const form = new FormData();
-    form.append('file', new Blob(['alpha\n42'], { type: 'text/plain' }), 'notes.txt');
-    const r = await fetch(srv.base + '/api/attach', { method: 'POST', headers: { cookie }, body: form });
+  // 1b. File attachments: raw body + X-File-Name (same contract as the browser client).
+  const attachRaw = (bytes, name, extraHeaders = {}) =>
+    fetch(srv.base + '/api/attach', {
+      method: 'POST',
+      headers: {
+        cookie,
+        'Content-Type': 'application/octet-stream',
+        'X-File-Name': encodeURIComponent(name),
+        ...extraHeaders,
+      },
+      body: bytes,
+    });
+
+  await t('attachment validation accepts text files (raw upload)', async () => {
+    const body = new TextEncoder().encode('alpha\n42');
+    const r = await attachRaw(body, 'notes.txt');
     assert.equal(r.status, 200);
     const j = await r.json();
     assert.equal(j.success, true);
     assert.equal(j.data.name, 'notes.txt');
     assert.equal(j.data.size, 8);
-    assert.equal('text' in j.data, false);
+    assert.equal(j.data.kind, 'text');
+    assert.ok(typeof j.data.text === 'string' && j.data.text.includes('alpha'));
     assert.equal('inlineData' in j.data, false);
-    assert.equal(j.meta.stored, false);
+    assert.equal(j.meta.stage, 'attach');
   });
 
-  await t('conversation accepts multipart text attachment without the 256-KB JSON limit', async () => {
+  await t('conversation accepts prior attachment text via JSON (not multipart)', async () => {
     const before = fakeHits;
-    const form = new FormData();
-    form.append('brief', JSON.stringify({ decision: 'Should I move?' }));
-    form.append('history', JSON.stringify([{ role: 'user', content: 'Should I move?' }]));
-    form.append('file', new Blob(['USER DATA\n42'], { type: 'text/plain' }), 'context.txt');
-    const r = await fetch(srv.base + '/api/conversation', { method: 'POST', headers: { cookie }, body: form });
+    const up = await attachRaw(new TextEncoder().encode('USER DATA\n42'), 'context.txt');
+    assert.equal(up.status, 200);
+    const att = (await up.json()).data;
+    const r = await post(srv, '/api/conversation', {
+      brief: { decision: 'Should I move?' },
+      history: [{ role: 'user', content: 'Should I move?' }],
+      attachments: [{ name: att.name, kind: att.kind, text: att.text }],
+    }, { cookie });
     assert.equal(r.status, 200);
     assert.ok(fakeHits > before, 'fake Gemini was not reached');
     const j = await r.json();
     assert.equal(j.success, true);
-    assert.equal(j.data.attachments[0].name, 'context.txt');
-    assert.equal(j.data.attachments[0].hasContent, true);
   });
 
-  await t('large multipart text attachment is accepted up to the attachment limit and remains outside JSON body limit', async () => {
-    const form = new FormData();
-    form.append('brief', JSON.stringify({ decision: 'Should I move?' }));
-    form.append('history', JSON.stringify([{ role: 'user', content: 'Should I move?' }]));
-    form.append('file', new Blob(['x'.repeat(400_000)], { type: 'text/plain' }), 'large.txt');
-    const r = await fetch(srv.base + '/api/conversation', { method: 'POST', headers: { cookie }, body: form });
+  await t('large attachment text is accepted when sent as JSON field (trimmed by client budget)', async () => {
+    const big = 'x'.repeat(50_000);
+    const up = await attachRaw(new TextEncoder().encode(big), 'large.txt');
+    assert.equal(up.status, 200);
+    const att = (await up.json()).data;
+    const r = await post(srv, '/api/conversation', {
+      brief: { decision: 'Should I move?' },
+      history: [{ role: 'user', content: 'Should I move?' }],
+      attachments: [{ name: att.name, kind: att.kind, text: String(att.text || '').slice(0, 30_000) }],
+    }, { cookie });
     assert.equal(r.status, 200);
   });
 
   await t('attachment rejects mismatched binary signature', async () => {
-    const form = new FormData();
-    form.append('file', new Blob(['not a pdf'], { type: 'application/pdf' }), 'fake.pdf');
-    const r = await fetch(srv.base + '/api/attach', { method: 'POST', headers: { cookie }, body: form });
-    assert.equal(r.status, 400);
+    const r = await attachRaw(new TextEncoder().encode('not a pdf'), 'fake.pdf');
+    assert.equal(r.status, 415);
     const j = await r.json();
-    assert.equal(j.code, 'INVALID_ATTACHMENT');
+    assert.equal(j.code, 'UNSUPPORTED_TYPE');
   });
 
   await t('document endpoint generates DOCX', async () => {
