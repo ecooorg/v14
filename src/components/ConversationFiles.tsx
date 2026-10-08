@@ -1,5 +1,5 @@
-import React, { useRef, useState } from 'react';
-import { CloudUpload, Download, FileText, Paperclip, X } from 'lucide-react';
+import React, { useRef, useState, useCallback } from 'react';
+import { CloudUpload, Copy, Download, FileText, Paperclip, X } from 'lucide-react';
 import {
   ACCEPT_FILES, Attachment, DocumentSpec, MAX_FILES_PER_MESSAGE, conversationToDocument,
   downloadDocument, formatSize, messageToDocument, uploadAttachment,
@@ -11,18 +11,25 @@ import { saveDocumentToGoogleDocs, type SavedDoc } from '../utils/driveExport';
 /* ---------- Attach button + chips of files waiting to be sent ---------- */
 
 export function AttachControl({
-  value, onChange, disabled,
-}: { value: Attachment[]; onChange: (next: Attachment[]) => void; disabled?: boolean }) {
+  value, onChange, disabled, showPrivacyNote = true,
+}: {
+  value: Attachment[];
+  onChange: (next: Attachment[]) => void;
+  disabled?: boolean;
+  /** When true (default), show a one-line privacy note next to the button. */
+  showPrivacyNote?: boolean;
+}) {
   const input = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(0);
   const [error, setError] = useState('');
 
-  const pick = async (files: FileList | null) => {
-    if (!files || !files.length) return;
+  const pick = useCallback(async (fileList: FileList | File[] | null) => {
+    if (!fileList || (fileList as FileList).length === 0 && !(fileList as File[]).length) return;
     setError('');
+    const list = Array.isArray(fileList) ? fileList : Array.from(fileList as FileList);
     const room = MAX_FILES_PER_MESSAGE - value.length;
-    const chosen = Array.from(files).slice(0, Math.max(0, room));
-    if (files.length > chosen.length) setError(`You can attach up to ${MAX_FILES_PER_MESSAGE} files to one message.`);
+    const chosen = list.slice(0, Math.max(0, room));
+    if (list.length > chosen.length) setError(`You can attach up to ${MAX_FILES_PER_MESSAGE} files to one message.`);
     let next = value;
     setUploading((n) => n + chosen.length);
     for (const f of chosen) {
@@ -37,7 +44,18 @@ export function AttachControl({
       }
     }
     if (input.current) input.current.value = '';
-  };
+  }, [value, onChange]);
+
+  // Expose pick for drag-and-drop / paste from parent via ref-like callback or window event.
+  // Parents call the same upload path through a custom event so we keep one implementation.
+  React.useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail as { files?: File[] } | undefined;
+      if (detail?.files?.length) void pick(detail.files);
+    };
+    window.addEventListener('be:attach-files', handler);
+    return () => window.removeEventListener('be:attach-files', handler);
+  }, [pick]);
 
   return (
     <div className="attach-control">
@@ -48,6 +66,11 @@ export function AttachControl({
       >
         <Paperclip size={15} />{uploading > 0 ? 'Reading…' : 'Attach file'}
       </button>
+      {showPrivacyNote && (
+        <span className="attach-privacy-note" title="Files are sent to Google Gemini together with your message. The server does not keep them.">
+          File will be sent to Gemini
+        </span>
+      )}
       <AttachmentChips items={value} onRemove={(i) => onChange(value.filter((_, k) => k !== i))} />
       {error && <div className="attach-error" role="alert">{error}</div>}
     </div>
@@ -126,9 +149,34 @@ export function DocumentCard({ doc }: { doc: DocumentSpec }) {
 /** Small "download this reply" links under an assistant message. */
 export function MessageDownload({ title, text }: { title: string; text: string }) {
   const { busy, error, run } = useDownload();
+  const [copied, setCopied] = useState(false);
   const doc = () => messageToDocument(title, text);
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Fallback for older browsers / denied permission
+      try {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.left = '-9999px';
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        ta.remove();
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      } catch { /* ignore */ }
+    }
+  };
   return (
     <div className="message-download">
+      <button type="button" className="link-button" onClick={() => void copy()} aria-label="Copy reply">
+        <Copy size={13} style={{ marginRight: 4 }} />{copied ? 'Copied' : 'Copy'}
+      </button>
       <button type="button" className="link-button" disabled={!!busy} onClick={() => void run(doc(), 'docx')}>{busy === 'docx' ? 'Preparing…' : 'Save as Word'}</button>
       <button type="button" className="link-button" disabled={!!busy} onClick={() => void run(doc(), 'pdf')}>{busy === 'pdf' ? 'Preparing…' : 'Save as PDF'}</button>
       <DriveSaveButton getDoc={doc} />
