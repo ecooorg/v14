@@ -135,45 +135,58 @@ try {
   });
 
   await t('document endpoint generates DOCX', async () => {
-    const r = await fetch(srv.base + '/api/document', {
+    const r = await fetch(srv.base + '/api/export-document', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', cookie },
       body: JSON.stringify({
         format: 'docx',
-        document: { title: 'Test note', paragraphs: ['Hello'], bullets: ['One'], sections: [], tables: [] },
+        document: {
+          title: 'Test note',
+          blocks: [
+            { type: 'paragraph', text: 'Hello' },
+            { type: 'bullets', items: ['One'] },
+          ],
+        },
       }),
     });
-    assert.equal(r.status, 200);
+    assert.equal(r.status, 200, await r.text());
     assert.match(r.headers.get('content-type') || '', /wordprocessingml/);
     const bytes = new Uint8Array(await r.arrayBuffer());
     assert.ok(bytes[0] === 0x50 && bytes[1] === 0x4b, 'DOCX should be a ZIP container');
   });
 
-  await t('document download uses ASCII fallback and UTF-8 filename for Cyrillic titles', async () => {
-    const r = await fetch(srv.base + '/api/document', {
+  await t('document download uses English ASCII file name even for Cyrillic titles', async () => {
+    const r = await fetch(srv.base + '/api/export-document', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', cookie },
       body: JSON.stringify({
         format: 'pdf',
-        document: { title: 'Тестовый документ', paragraphs: ['Проверка'], bullets: [], sections: [], tables: [] },
+        document: {
+          title: 'Тестовый документ',
+          blocks: [{ type: 'paragraph', text: 'Проверка' }],
+        },
       }),
     });
-    assert.equal(r.status, 200);
+    assert.equal(r.status, 200, await r.text());
     const cd = r.headers.get('content-disposition') || '';
-    assert.match(cd, /filename="[^"]+\.pdf"/);
-    assert.match(cd, /filename\*=UTF-8''%D0/);
+    // Product rule: downloaded names are always English ASCII (transliterated title).
+    assert.match(cd, /filename="[a-z0-9-]+\.pdf"/i);
+    assert.equal(/filename\*=/.test(cd), false);
   });
 
   await t('document endpoint generates PDF with the bundled Unicode font', async () => {
-    const r = await fetch(srv.base + '/api/document', {
+    const r = await fetch(srv.base + '/api/export-document', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', cookie },
       body: JSON.stringify({
         format: 'pdf',
-        document: { title: 'Тестовый документ', paragraphs: ['Проверка кириллицы'], bullets: [], sections: [], tables: [] },
+        document: {
+          title: 'Тестовый документ',
+          blocks: [{ type: 'paragraph', text: 'Проверка кириллицы' }],
+        },
       }),
     });
-    assert.equal(r.status, 200);
+    assert.equal(r.status, 200, await r.text());
     assert.match(r.headers.get('content-type') || '', /application\/pdf/);
     const text = Buffer.from(await r.arrayBuffer()).subarray(0, 5).toString('ascii');
     assert.equal(text, '%PDF-');
