@@ -1,5 +1,16 @@
 # Agent behavior and model routing changes
 
+## v1.4.6
+
+Packages B2–B4: export / import of the whole library.
+
+- **B2 Export all ▸**: submenu Backup (.json) · Readable text (.md) · Word · PDF · Google Docs. md/Word/PDF/Google Docs are one document, each dialogue a chapter (title, date, conversation and/or decision review via `conversationToDocument` / `decisionToDocument`). `src/utils/libraryExport.ts`.
+- Server: `/api/export-document` accepts `bulk: true` (up to 5000 blocks / 2 000 000 characters, body ≤ 8 MB on this route only); without it limits are unchanged (150 blocks / 120 000).
+- **B3 Import ▸**: From backup (.json) · From Google Drive (existing library sync: merge, never replace) · From a file as a new dialogue (txt/docx/pdf via `/api/attach`; the file becomes the first message and is archived in program files). The same menu is used on the welcome screen (shared header).
+- **B4 Import rules**: merge by `id` with the Drive-merge rule (later `updatedAt` wins, local wins a tie, nothing removed); report «Added N, updated M, skipped K»; confirmation before applying when local versions are newer (they are kept). Program files merge by hash as before.
+- Test: `tests/libraryExport.test.mjs` (`npm run test:library`, part of `check`): chapters, md, bulk limit, re-import without duplicates, conflicts, round trip.
+- Not run in the sandbox: `npm ci`, build, full `npm run check` (no network). Run them. Manual check: export .json → clean browser → import; repeat import shows «skipped K».
+
 ## v1.4.5
 
 Package B1: files in expert requests.
