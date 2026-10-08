@@ -64,6 +64,23 @@ export function collectAttachments(history: any[]): { name: string; kind: string
   return all.map((a) => ({ name: a.name, kind: a.kind, text: String(a.text || ''), truncated: a.truncated, nativeId: a.nativeId }));
 }
 
+/**
+ * One collector for both sources: files of the decision (expert stages) and files on chat messages (simple mode).
+ * Duplicates (same name and size) are sent once. For expert requests (forExpert) images and scans go as their saved description only.
+ */
+export function collectDecisionAttachments(d: any, history?: any[], forExpert = false): { name: string; kind: string; text: string; truncated?: boolean; nativeId?: string }[] {
+  const msgs = history ?? (Array.isArray(d?.modelSuggestions?.conversation) ? d.modelSuggestions.conversation : []);
+  const seen = new Set<string>();
+  const out: { name: string; kind: string; text: string; truncated?: boolean; nativeId?: string }[] = [];
+  for (const a of [...(Array.isArray(d?.files) ? d.files : []), ...collectAttachments(msgs)]) {
+    const key = `${a.name}|${(a as any).size ?? ''}|${String(a.text || '').length}`;
+    if (!a?.name || seen.has(key)) continue;
+    seen.add(key);
+    out.push(forExpert ? { name: a.name, kind: a.kind, text: String(a.text || ''), truncated: a.truncated } : { name: a.name, kind: a.kind, text: String(a.text || ''), truncated: a.truncated, nativeId: a.nativeId });
+  }
+  return out;
+}
+
 /** History as the server needs it: roles and text only. A document handed over earlier is described so the agent can revise it. */
 export function historyForRequest(history: any[]): { role: string; content: string }[] {
   return history.map((m) => {
