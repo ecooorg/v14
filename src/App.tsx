@@ -34,7 +34,12 @@ import { evpi, evpiRange, evpiVerdict, validateEvpiInput } from './core/evpi';
 import { brierScore } from './core/brier';
 import { cardChecksum } from './core/sha256Export';
 import { buildIcs } from './core/icsBuilder';
-import { detectUiLanguage, installUiLanguage } from './i18n/ui';
+import { detectUiLanguage, installUiLanguage, getStoredUiLanguage } from './i18n/ui';
+import { errorFromResponse, localizedException } from './i18n/errors';
+import { documentToMarkdown, libraryToDocument, planImport, importReport } from './utils/libraryExport';
+import { saveDocumentToGoogleDocs } from './utils/driveExport';
+import { isDriveConfigured } from './utils/driveClient';
+import { downloadDocument, uploadAttachment } from './utils/attachments';
 
 // --- API helper ---
 async function api(path: string, body: unknown) {
@@ -51,7 +56,7 @@ async function api(path: string, body: unknown) {
     // Preserve the real provider/server reason. AI failures are handled by runApi
     // as a neutral status message, never by the red global error banner.
     const detail = j?.details?.upstreamMessage ? ` — ${j.details.upstreamMessage}` : '';
-    const err = new Error(`${j.error || `API error ${r.status}`}${detail}`);
+    const err = errorFromResponse({ ...j, error: `${j.error || `API error ${r.status}`}${detail}` }, getStoredUiLanguage(), getStoredUiLanguage() === 'ru' ? 'Операция не выполнена.' : `API error ${r.status}`);
     (err as any).code = j.code;
     (err as any).status = r.status;
     throw err;
@@ -204,10 +209,96 @@ export default function App() {
     [active?.id]
   );
 
+  const reviseConversationDocument = useCallback((messageIndex: number, next: DocumentSpec) => {
+    update((d) => {
+      const history = Array.isArray((d.modelSuggestions as any)?.conversation) ? [...(d.modelSuggestions as any).conversation] : [];
+      const previous = history[messageIndex];
+      if (!previous) return d;
+      const revision = {
+        role: 'assistant',
+        content: uiLanguage === 'ru' ? 'Обновил документ по вашему запросу.' : 'I updated the document as requested.',
+        document: next,
+        at: Date.now(),
+      };
+      history.push(revision);
+      return { ...d, modelSuggestions: { ...d.modelSuggestions, conversation: history } };
+    });
+  }, [uiLanguage, update]);
+
   const createNew = () => {
     const d = emptyDecision();
     setDecisions((prev) => [d, ...prev]);
     setActiveId(d.id);
+  };
+
+
+  // B2: export everything (json backup, or one document with every dialogue as a chapter).
+  const exportAll = (fmt: 'json' | 'md' | 'docx' | 'pdf' | 'gdocs') => {
+    if (!decisions.length) { setError('Nothing to export.'); return; }
+    setError('');
+    const base = exportFileName().replace(/\.json$/i, '');
+    if (fmt === 'json') {
+      void exportProgramFilesPayload().then((pf) => downloadBlob(exportAllJson(decisions, pf), exportFileName()));
+      return;
+    }
+    const doc = libraryToDocument(decisions);
+    if (fmt === 'md') { downloadBlob(new Blob([documentToMarkdown(doc)], { type: 'text/markdown' }), `${base}.md`); return; }
+    if (fmt === 'gdocs') {
+      if (!isDriveConfigured()) { setError('Google sign-in is not configured.'); return; }
+      setMessage('Saving to Google Docs…');
+      saveDocumentToGoogleDocs(doc, true, getStoredUiLanguage())   // called straight from the click: the sign-in popup needs it
+        .then((saved) => setMessage(`Saved to Google Drive. ${saved.link}`))
+        .catch((e: any) => { setMessage(''); setError(e?.message || 'Save failed.'); });
+      return;
+    }
+    setMessage('Preparing…');
+    downloadDocument(doc, fmt, true, getStoredUiLanguage())
+      .then(() => setMessage(fmt === 'docx' ? 'Saved as Word.' : 'Saved as PDF.'))
+      .catch((e: any) => { setMessage(''); setError(e?.message || 'Save failed.'); });
+  };
+
+  // B3/B4: import a backup; merge by id (newer wins, nothing removed), show a report.
+  const importBackup = (file: File) => {
+    const ru = getStoredUiLanguage() === 'ru';
+    const reader = new FileReader();
+    reader.onload = () => {
+      void (async () => {
+        try {
+          const backup = parseImportedBackup(String(reader.result));
+          const plan = planImport(decisions, backup.decisions);
+          if (plan.conflicts.length) {
+            const list = plan.conflicts.slice(0, 5).join(', ') + (plan.conflicts.length > 5 ? '…' : '');
+            const ask = ru
+              ? `У ${plan.conflicts.length} диалогов локальная версия новее файла (${list}). Они останутся без изменений. Продолжить импорт?`
+              : `${plan.conflicts.length} dialogue(s) have a newer local version than the file (${list}). They will be kept as they are. Continue the import?`;
+            if (!confirm(ask)) return;
+          }
+          await importProgramFilesPayload(backup.programFiles);
+          setDecisions((prev) => planImport(prev, backup.decisions).merged);
+          setMessage(importReport(plan, ru));
+        } catch (e: any) {
+          setError(e.message);
+        }
+      })();
+    };
+    reader.readAsText(file);
+  };
+
+  // B3: a txt / docx / pdf file becomes the first material of a new dialogue.
+  const importAsDialog = (file: File) => {
+    setError(''); setMessage('Preparing…');
+    uploadAttachment(file, getStoredUiLanguage())
+      .then((att) => {
+        const d = emptyDecision();
+        const now = Date.now();
+        d.title = att.name.replace(/\.[^.]+$/, '').slice(0, 80) || d.title;
+        d.modelSuggestions = { ...(d.modelSuggestions as any), conversation: [{ role: 'user', content: `Attached: ${att.name}`, attachments: [att], at: now }] } as any;
+        void archiveAttachment(att, d.id);
+        setDecisions((prev) => [d, ...prev]);
+        setActiveId(d.id);
+        setMessage('');
+      })
+      .catch((e: any) => { setMessage(''); setError(localizedException(e, getStoredUiLanguage(), getStoredUiLanguage() === 'ru' ? 'Не удалось загрузить файл.' : 'The upload failed.')); });
   };
 
   const removeDecision = (id: string) => {
@@ -346,9 +437,7 @@ export default function App() {
         {historyPanel}
         <Header
           onNew={createNew}
-          onExportAll={() =>
-            void exportProgramFilesPayload().then((pf) => downloadBlob(exportAllJson(decisions, pf), exportFileName()))
-          }
+          onExportAll={exportAll}
           onDrive={drive.onButton}
           onGoogleAI={openGoogleAI}
           onProgramFiles={() => setShowProgramFiles(true)}
@@ -357,19 +446,9 @@ export default function App() {
           driveMessage={drive.message}
         onHistory={() => setShowHistory(true)}
         historyAvailable={historyAvailable}
-          onImport={(file) => {
-            const reader = new FileReader();
-            reader.onload = () => {
-              try {
-                const backup = parseImportedBackup(String(reader.result)); const list = backup.decisions; void importProgramFilesPayload(backup.programFiles);
-                setDecisions((prev) => [...list, ...prev]);
-                setMessage(`Imported: ${list.length}`);
-              } catch (e: any) {
-                setError(e.message);
-              }
-            };
-            reader.readAsText(file);
-          }}
+          onImport={importBackup}
+        onImportAsDialog={importAsDialog}
+        onImportDrive={drive.onButton}
         />
         <div className="empty">
           <h1>Nothing here yet</h1>
@@ -416,9 +495,7 @@ export default function App() {
         onExport={() =>
           downloadBlob(exportDecisionJson(d), `${d.title.slice(0, 40) || d.id}.json`)
         }
-        onExportAll={() =>
-          void exportProgramFilesPayload().then((pf) => downloadBlob(exportAllJson(decisions, pf), exportFileName()))
-        }
+        onExportAll={exportAll}
         onDrive={drive.onButton}
         onGoogleAI={openGoogleAI}
           onProgramFiles={() => setShowProgramFiles(true)}
@@ -427,19 +504,9 @@ export default function App() {
         driveMessage={drive.message}
         onHistory={() => setShowHistory(true)}
         historyAvailable={historyAvailable}
-        onImport={(file) => {
-          const reader = new FileReader();
-          reader.onload = () => {
-            try {
-              const backup = parseImportedBackup(String(reader.result)); const list = backup.decisions; void importProgramFilesPayload(backup.programFiles);
-              setDecisions((prev) => [...list, ...prev]);
-              setMessage(`Imported: ${list.length}`);
-            } catch (e: any) {
-              setError(e.message);
-            }
-          };
-          reader.readAsText(file);
-        }}
+        onImport={importBackup}
+        onImportAsDialog={importAsDialog}
+        onImportDrive={drive.onButton}
         onBrief={() => setShowBrief(true)}
         onDelete={() => removeDecision(d.id)}
         expertMode={expertMode}
@@ -504,7 +571,7 @@ export default function App() {
 
         <main className="content">
           {expertMode && ((d.modelSuggestions as any)?.conversation?.length ?? 0) > 0 && (
-            <SharedConversationContext d={d} />
+            <SharedConversationContext d={d} onDocumentEdit={reviseConversationDocument} />
           )}
 
           {error && (
@@ -526,7 +593,7 @@ export default function App() {
 
           <ErrorBoundary label={stageMeta.label}>
             {!expertMode && d.step !== 'BRIEF' ? (
-              <ConversationScreen d={d} update={update} runApi={runApi} busy={busy} />
+              <ConversationScreen d={d} update={update} runApi={runApi} busy={busy} onDocumentEdit={reviseConversationDocument} />
             ) : (
               <>
                 {d.step === 'TRIAGE' && (
@@ -619,8 +686,10 @@ function MethodGuide({ step, stageMeta, busy }: { step: Step; stageMeta: typeof 
 function Header(props: {
   onNew: () => void;
   onExport?: () => void;
-  onExportAll: () => void;
+  onExportAll: (fmt: 'json' | 'md' | 'docx' | 'pdf' | 'gdocs') => void;
   onImport: (f: File) => void;
+  onImportAsDialog?: (f: File) => void;
+  onImportDrive?: () => void;
   onBrief?: () => void;
   onDelete?: () => void;
   expertMode?: boolean;
@@ -635,6 +704,7 @@ function Header(props: {
   historyAvailable?: boolean;
 }) {
   const [moreOpen, setMoreOpen] = useState(false);
+  const [sub, setSub] = useState<'' | 'export' | 'import'>('');
   const moreRef = useRef<HTMLDivElement>(null);
   // Cloud is a sync status indicator only; actions live under More → Import / Export all.
   const driveLabel = props.driveBusy ? 'Syncing…' : props.driveConnected ? 'Drive connected' : 'Drive';
@@ -673,16 +743,42 @@ function Header(props: {
           </button>
           {/* Unified More menu (same order in both modes; Brief / Delete only in expert) */}
           <div className={`hdr-secondary${moreOpen ? ' open' : ''}`} role="menu">
-            <button type="button" className="ghost" role="menuitem" onClick={() => { setMoreOpen(false); props.onExportAll(); }}>
-              <Download size={14} /> Export all
+            <button type="button" className="ghost" role="menuitem" aria-expanded={sub === 'export'} onClick={() => setSub(sub === 'export' ? '' : 'export')}>
+              <Download size={14} /> Export all ▸
             </button>
-            <label className="ghost" style={{ cursor: 'pointer' }} role="menuitem">
-              <Upload size={14} /> Import
-              <input type="file" accept="application/json" hidden onChange={(e) => {
-                const f = e.target.files?.[0];
-                if (f) { props.onImport(f); setMoreOpen(false); }
-              }} />
-            </label>
+            {sub === 'export' && (
+              <div className="hdr-sub" role="menu">
+                {([['json', 'Backup (.json)'], ['md', 'Readable text (.md)'], ['docx', 'Word'], ['pdf', 'PDF'], ['gdocs', 'Google Docs']] as const).map(([f, label]) => (
+                  <button key={f} type="button" className="ghost" role="menuitem" onClick={() => { setMoreOpen(false); setSub(''); props.onExportAll(f); }}>{label}</button>
+                ))}
+              </div>
+            )}
+            <button type="button" className="ghost" role="menuitem" aria-expanded={sub === 'import'} onClick={() => setSub(sub === 'import' ? '' : 'import')}>
+              <Upload size={14} /> Import ▸
+            </button>
+            {sub === 'import' && (
+              <div className="hdr-sub" role="menu">
+                <label className="ghost" style={{ cursor: 'pointer' }} role="menuitem">
+                  From backup (.json)
+                  <input type="file" accept="application/json,.json" hidden onChange={(e) => {
+                    const f = e.target.files?.[0]; e.target.value = '';
+                    if (f) { props.onImport(f); setMoreOpen(false); setSub(''); }
+                  }} />
+                </label>
+                {props.onImportDrive && (
+                  <button type="button" className="ghost" role="menuitem" onClick={() => { setMoreOpen(false); setSub(''); props.onImportDrive?.(); }}>From Google Drive</button>
+                )}
+                {props.onImportAsDialog && (
+                  <label className="ghost" style={{ cursor: 'pointer' }} role="menuitem">
+                    From a file as a new dialogue
+                    <input type="file" accept=".txt,.docx,.pdf,text/plain,application/pdf" hidden onChange={(e) => {
+                      const f = e.target.files?.[0]; e.target.value = '';
+                      if (f) { props.onImportAsDialog?.(f); setMoreOpen(false); setSub(''); }
+                    }} />
+                  </label>
+                )}
+              </div>
+            )}
             {props.onProgramFiles && (
               <button type="button" className="ghost" role="menuitem" onClick={() => { setMoreOpen(false); props.onProgramFiles?.(); }}>
                 Program files
@@ -1037,7 +1133,7 @@ function BriefScreen({
 // The conversation is a single shared state. Simple mode and Expert mode
 // display the same messages; Expert mode simply adds the structured method
 // below them. No new AI request is made by this component.
-function SharedConversationContext({ d }: { d: Decision }) {
+function SharedConversationContext({ d, onDocumentEdit }: { d: Decision; onDocumentEdit?: (index: number, next: DocumentSpec) => void }) {
   const history: any[] = Array.isArray(d.modelSuggestions?.conversation)
     ? d.modelSuggestions!.conversation!
     : [];
@@ -1073,7 +1169,7 @@ function SharedConversationContext({ d }: { d: Decision }) {
             {history.map((m: any, i: number) => (
               <div key={i} className={`conversation-message ${m.role === 'user' ? 'user' : 'assistant'}`}>
                 <div className="conversation-message-text" translate="no" dir="auto">{m.content}</div>
-                <MessageExtras message={m} />
+                <MessageExtras message={m} onDocumentEdit={onDocumentEdit ? (next) => onDocumentEdit(i, next) : undefined} />
               </div>
             ))}
           </div>
@@ -1089,11 +1185,13 @@ function ConversationScreen({
   update,
   runApi,
   busy,
+  onDocumentEdit,
 }: {
   d: Decision;
   update: (p: Partial<Decision> | ((x: Decision) => Decision)) => void;
   runApi: (path: string, body: unknown, onOk: (data: any, meta: any) => void) => void;
   busy: boolean;
+  onDocumentEdit?: (index: number, next: DocumentSpec) => void;
 }) {
   const [input, setInput] = useState('');
   const [files, setFiles] = useState<Attachment[]>([]);
@@ -1226,7 +1324,7 @@ function ConversationScreen({
         {history.map((m: any, i: number) => (
           <div key={i} className={`conversation-message ${m.role === 'user' ? 'user' : 'assistant'}`}>
             <div className="conversation-message-text" translate="no" dir="auto">{m.content}</div>
-            <MessageExtras message={m} />
+            <MessageExtras message={m} onDocumentEdit={onDocumentEdit ? (next) => onDocumentEdit(i, next) : undefined} />
             {m.role === 'assistant' && !m.document && i === history.map((x: any) => x.role).lastIndexOf('assistant') && String(m.content || '').length >= 120 && !String(m.content).includes('\n---\n') && <CopyButton title={d.title} text={String(m.content)} />}
             {/* Retry under the last user message when the assistant never answered */}
             {m.role === 'user' && i === history.length - 1 && waitingForAssistant && !busy && (
