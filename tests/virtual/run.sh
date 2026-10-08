@@ -8,4 +8,5 @@ tsx tests/virtual/v17.test.mjs
 tsx tests/virtual/regression.test.mjs
 tsx tests/virtual/perf.test.mjs
 tsx tests/virtual/files.test.mjs
+tsx tests/virtual/expert-files.test.mjs
 tsx tests/virtual/stage2.test.mjs
