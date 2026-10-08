@@ -1,7 +1,7 @@
 {
   "name": "bifurcation-engine",
   "private": true,
-  "version": "1.4.6",
+  "version": "1.5.0",
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
@@ -19,11 +19,12 @@
     "test:sync": "tsx tests/driveSync.test.mjs",
     "test:files": "tsx tests/files.test.mjs",
     "test:drivedocs": "tsx tests/driveDocs.test.mjs",
-    "check": "node scripts/check-version.mjs && npm run test:version && npm run lint:copy && npm run typecheck && npm run test:merge && npm run test:security && npm run test:core && npm run test:reasoning && npm run test:export && npm run test:sync && npm run test:files && npm run test:drivedocs && npm run test:library && npm run test:virtual",
+    "check": "node scripts/check-version.mjs && npm run test:version && npm run lint:copy && npm run typecheck && npm run test:merge && npm run test:security && npm run test:core && npm run test:reasoning && npm run test:export && npm run test:sync && npm run test:files && npm run test:drivedocs && npm run test:library && npm run test:package-c && npm run test:virtual",
     "test:virtual": "bash tests/virtual/run.sh",
     "test:ui": "node --import tsx tests/ui/ui-check.mjs",
     "test:version": "node tests/version-check.test.mjs",
-    "test:library": "tsx tests/libraryExport.test.mjs"
+    "test:library": "tsx tests/libraryExport.test.mjs",
+    "test:package-c": "node tests/package-c.test.mjs"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

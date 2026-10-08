@@ -58,6 +58,7 @@ const NODE_ENV = process.env.NODE_ENV || 'development';
 
 // Behind Railway's proxy: trust exactly the configured number of hops, so X-Forwarded-For cannot be spoofed.
 app.set('trust proxy', process.env.TRUST_PROXY_HOPS !== undefined ? Number(process.env.TRUST_PROXY_HOPS) : (NODE_ENV === 'production' ? 1 : false));
+app.use('/api/export-document', express.json({ limit: '8mb' }));   // B2: whole-library documents
 app.use(express.json({ limit: MAX_BODY }));
 
 const apiKey = process.env.GEMINI_API_KEY;
@@ -1804,6 +1805,46 @@ app.post('/api/evpi', (req, res) => {
   ok(res, { evOpen, bestNoInfo, evPerfect, evpi: evpiVal, testCost: c }, { model: 'local', fallback: false, durationMs: 0, stage: 'evpi' });
 });
 
+// --- Document quick edits (Package C) ---
+app.post('/api/revise-document', async (req, res) => {
+  try {
+    const requestByokKey = byokFromRequest(req);
+    const requestPreferredModel = preferredModelFromRequest(req);
+    if (!aiGate(req, res)) return;
+    const action = String(req.body?.action || '');
+    const section = String(req.body?.section || '').trim();
+    const current = sanitizeDocument(req.body?.document);
+    if (!current) return fail(res, 400, 'There is nothing to edit.', 'EMPTY_DOCUMENT');
+    if (!['shorter', 'table', 'remove-section'].includes(action)) return fail(res, 400, 'Unknown document edit.', 'BAD_FORMAT');
+    if (action === 'remove-section' && !section) return fail(res, 400, 'Choose a section first.', 'PRECONDITION');
+
+    const actionText = action === 'shorter'
+      ? 'Make the document shorter while preserving its meaning, important facts and structure.'
+      : action === 'table'
+        ? 'Add one useful table to the document. Convert existing information into a compact table when appropriate; do not invent facts, numbers or sources.'
+        : `Remove the section whose heading is exactly "${section}" and its content until the next heading of the same or higher level.`;
+    const prompt = `You are editing an existing document for Bifurcation Engine. Perform exactly one requested edit and return only JSON with one field: document. Do not invent facts, figures, sources or claims. Preserve the document language, title and useful content unless the requested edit requires a change.
+
+REQUESTED EDIT: ${actionText}
+
+CURRENT DOCUMENT:
+${JSON.stringify(current)}
+
+OUTPUT SHAPE:
+{"document":{"title":"...","fileName":"...","blocks":[{"type":"heading","text":"..."},{"type":"paragraph","text":"..."},{"type":"bullets","items":["..."]},{"type":"numbered","items":["..."]},{"type":"table","headers":["..."],"rows":[["..."]]}]}}`;
+    const input = `${current.title}\n${current.blocks.map((b: any) => b.type === 'table' ? `${b.headers.join(' | ')}\n${b.rows.map((r: string[]) => r.join(' | ')).join('\n')}` : b.type === 'bullets' || b.type === 'numbered' ? b.items.join('\n') : b.text).join('\n')}`;
+    const out = await generate(prompt, input, 'strong', 'revise-document', 0, requestByokKey, requestPreferredModel);
+    const document = sanitizeDocument((out.data as any)?.document);
+    if (!document) return fail(res, 502, 'The AI returned an empty document.', 'EMPTY_DOCUMENT');
+    ok(res, { document }, out.meta);
+  } catch (e: any) {
+    if (e?.code === 'GEMINI_QUOTA') return fail(res, 429, e.message, e.code);
+    if (e?.code === 'GEMINI_RATE_LIMIT') return fail(res, 429, e.message, e.code, e.details);
+    if (e?.code === 'GEMINI_UNAVAILABLE') return fail(res, 503, e.message, e.code, e.details);
+    fail(res, 500, e?.message || 'Document edit failed.', e?.code || 'ATTACH_FAILED');
+  }
+});
+
 // --- Attachments and documents ---
 // Upload: the raw file bytes (Content-Type is ignored; the file's own bytes decide the type). Nothing is written to disk.
 app.post('/api/attach', express.raw({ type: () => true, limit: MAX_UPLOAD_BYTES }), async (req, res) => {
@@ -1831,7 +1872,7 @@ app.post('/api/export-document', async (req, res) => {
     if (!exportLimiter(clientIp(req))) return fail(res, 429, 'Too many downloads. Try again in a few minutes.', 'RATE_LIMIT');
     const format = String(req.body?.format || '');
     if (format !== 'docx' && format !== 'pdf') return fail(res, 400, 'Unknown format', 'BAD_FORMAT');
-    const spec = sanitizeDocument(req.body?.document);
+    const spec = sanitizeDocument(req.body?.document, undefined, req.body?.bulk === true);
     if (!spec) return fail(res, 400, 'There is nothing to export.', 'EMPTY_DOCUMENT');
     const file = format === 'pdf' ? await buildPdf(spec) : await buildDocx(spec);
     const name = documentFileName(spec, format);

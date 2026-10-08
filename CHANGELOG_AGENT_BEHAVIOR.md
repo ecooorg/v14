@@ -1,3 +1,10 @@
+## v1.5.0
+- Package C: document quick edits (shorten, add table, remove section) use one model request per action; the previous document version remains in dialogue history.
+- File/document errors now use interface-language messages from `src/i18n/errors.ts`, including upload, export and API error codes.
+- Added C3 coverage for document save/edit actions, retry, drag-and-drop, round-trip import/export and 360 px tap zones.
+- Version and documentation updated to 1.5.0.
+- C5 privacy review recorded: attachments are sent only with the request, are not persisted by the server; Google Drive uses `drive.file` / `drive.appdata`.
+
 # Agent behavior and model routing changes
 
 ## v1.4.6
