@@ -140,16 +140,18 @@ export function DocumentCard({ doc }: { doc: DocumentSpec }) {
   const [open, setOpen] = useState(false);
   const [driveBusy, setDriveBusy] = useState(false);
   const [status, setStatus] = useState('');
+  const [statusLink, setStatusLink] = useState('');
   const saveFormat = async (format: 'docx' | 'pdf' | 'gdocs') => {
     setOpen(false);
     setStatus('');
+    setStatusLink('');
     try {
       if (format === 'gdocs') {
         if (!isDriveConfigured()) { setStatus('Google sign-in is not configured.'); return; }
         setDriveBusy(true);
-        const saved = await saveDocumentToGoogleDocs(() => doc);
-        setStatus(saved?.link ? `Saved. Open in Google Docs` : 'Saved to Google Drive.');
-        if (saved?.link) setStatus(`Saved. ${saved.link}`);
+        const saved = await saveDocumentToGoogleDocs(doc);
+        setStatus('Saved to Google Drive.');
+        setStatusLink(saved?.link || '');
       } else {
         await run(doc, format);
         setStatus(format === 'docx' ? 'Saved as Word.' : 'Saved as PDF.');
@@ -177,13 +179,18 @@ export function DocumentCard({ doc }: { doc: DocumentSpec }) {
           )}
         </div>
       </div>
-      {(error || status) && <div className="attach-error" role="status">{error || status}</div>}
+      {(error || status) && (
+        <div className="attach-error" role="status">
+          {error || status}
+          {!error && statusLink && status === 'Saved to Google Drive.' && <> <a href={statusLink} target="_blank" rel="noopener noreferrer">Open in Google Docs</a></>}
+        </div>
+      )}
     </div>
   );
 }
 
 /** Copy under an assistant reply. Full save lives in the Files panel. */
-export function MessageDownload({ title, text }: { title: string; text: string }) {
+export function CopyButton({ title, text }: { title: string; text: string }) {
   const [copied, setCopied] = useState(false);
   const copy = async () => {
     try {
@@ -250,6 +257,7 @@ export function FilesPanel({
   onAgentSummary,
   onCalendar,
   buildFullReview,
+  hideAdd,
 }: {
   files: Attachment[];
   onFilesChange: (next: Attachment[]) => void;
@@ -264,12 +272,15 @@ export function FilesPanel({
   onCalendar?: () => void;
   /** Expert: build a DocumentSpec for the whole decision review. */
   buildFullReview?: () => DocumentSpec;
+  /** Expert stages: hide «Add file» until attachments reach the expert requests. */
+  hideAdd?: boolean;
 }) {
   const [addOpen, setAddOpen] = useState(false);
   const [saveOpen, setSaveOpen] = useState(false);
   const [saveStep, setSaveStep] = useState<'what' | 'where'>('what');
   const [what, setWhat] = useState<SaveWhat>(expertMode ? 'full-review' : 'dialogue');
   const [status, setStatus] = useState('');
+  const [statusLink, setStatusLink] = useState('');
   const [busy, setBusy] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerList, setPickerList] = useState<ProgramFile[]>([]);
@@ -351,8 +362,9 @@ export function FilesPanel({
       const doc = what === 'full-review' && buildFullReview ? buildFullReview() : dialogueDoc();
       if (where === 'gdocs') {
         if (!isDriveConfigured()) { setStatus('Google sign-in is not configured.'); return; }
-        const saved = await saveDocumentToGoogleDocs(() => doc);
-        setStatus(saved?.link ? `Saved. Open in Google Docs: ${saved.link}` : 'Saved to Google Drive.');
+        const saved = await saveDocumentToGoogleDocs(doc);
+        setStatus('Saved to Google Drive.');
+        setStatusLink(saved?.link || '');
       } else {
         await downloadDocument(doc, where);
         setStatus(where === 'docx' ? 'Saved as Word.' : 'Saved as PDF.');
@@ -399,7 +411,7 @@ export function FilesPanel({
   return (
     <div className="files-panel" ref={panelRef}>
       <div className="files-panel-buttons">
-        <div className="files-menu-wrap">
+        <div className="files-menu-wrap" style={hideAdd ? { display: 'none' } : undefined}>
           <button
             type="button"
             className="ghost files-panel-btn"
@@ -436,8 +448,8 @@ export function FilesPanel({
               {saveStep === 'what' && (
                 <>
                   <div className="files-menu-label">What to save</div>
-                  <button type="button" role="menuitem" className={`files-menu-item${what === 'dialogue' ? ' active' : ''}`} onClick={() => { setWhat('dialogue'); setSaveStep('where'); }}>Whole dialogue</button>
-                  <button type="button" role="menuitem" className={`files-menu-item${what === 'agent-summary' ? ' active' : ''}`} onClick={() => { setWhat('agent-summary'); void doSave('docx'); }}>Agent summary</button>
+                  {history.length > 0 && <button type="button" role="menuitem" className={`files-menu-item${what === 'dialogue' ? ' active' : ''}`} onClick={() => { setWhat('dialogue'); setSaveStep('where'); }}>Whole dialogue</button>}
+                  {onAgentSummary && <button type="button" role="menuitem" className={`files-menu-item${what === 'agent-summary' ? ' active' : ''}`} onClick={() => { setWhat('agent-summary'); void doSave('docx'); }}>Agent summary</button>}
                   {expertMode && (
                     <button type="button" role="menuitem" className={`files-menu-item${what === 'full-review' ? ' active' : ''}`} onClick={() => { setWhat('full-review'); setSaveStep('where'); }}>Full decision review</button>
                   )}
@@ -461,11 +473,18 @@ export function FilesPanel({
           )}
         </div>
       </div>
-      <span className="attach-privacy-note" title="Files are sent to Google Gemini together with your message. The server does not keep them.">
-        File will be sent to Gemini
-      </span>
+      {!hideAdd && (
+        <span className="attach-privacy-note" title="Files are sent to Google Gemini together with your message. The server does not keep them.">
+          File will be sent to Gemini
+        </span>
+      )}
       <AttachmentChips items={files} onRemove={(i) => onFilesChange(files.filter((_, k) => k !== i))} />
-      {status && <div className="files-panel-status" role="status">{status}</div>}
+      {status && (
+        <div className="files-panel-status" role="status">
+          {status}
+          {statusLink && status === 'Saved to Google Drive.' && <> <a href={statusLink} target="_blank" rel="noopener noreferrer">Open in Google Docs</a></>}
+        </div>
+      )}
       {quotaMsg && <div className="files-panel-status files-panel-warn" role="status">{quotaMsg}</div>}
 
       {pickerOpen && (
