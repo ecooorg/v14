@@ -1,6 +1,18 @@
 # Agent behavior and model routing changes
 
+## v1.4.2
+
+Stage 2 of the unified v1.5 plan + CI fix for virtual attach tests.
+
+- **Virtual tests**: `/api/attach` checks use raw `application/octet-stream` + `X-File-Name` (same as the browser client). Conversation attachment cases use JSON after a prior attach. Mismatched fake.pdf expects 415 `UNSUPPORTED_TYPE`.
+- **Files panel**: permanent **Add file** / **Save to file** under the dialogue (simple + expert entry). Two-step save (what → format). Status line. Program files entry is a placeholder until stage 3.
+- **More menu**: fixed order — Export all, Import, Google AI, Brief (expert), Delete dialogue (expert). Cloud in the header is a sync indicator only.
+- **Removed from the composer row**: Conversation as Word/PDF, Create a document, Write note (moved into Save → Agent summary / Whole dialogue).
+- **Document card**: single **Save…** menu instead of three buttons. Message row keeps **Copy** only.
+- **Retry**: `pendingSend` stored on `modelSuggestions` so the first BriefScreen send can be retried after a failure.
+
 ## v1.4.1
+
 
 Stage 1 of the unified v1.5 plan (critical fixes and quick UX). Decision method, prompts and expert stages are unchanged.
 
