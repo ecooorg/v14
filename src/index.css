@@ -535,3 +535,9 @@ button:disabled{
 
 .drive-saved{flex-basis:100%;font-size:12px;color:#8fd1a8}
 .drive-saved a{color:#8fc3f0;text-underline-offset:3px;margin-left:4px}
+
+/* ---- Auto-growing text fields (see components/AutoGrow.tsx) ---- */
+textarea.auto-input{display:block;width:100%;min-height:0;line-height:1.4;background:#07121e;border:1px solid #20374d;border-radius:8px;padding:9px;color:#dbe8f5;outline:none;white-space:pre-wrap;overflow-wrap:anywhere}
+textarea.auto-input:focus{border-color:#4c7ca6}
+textarea.auto-input:disabled{opacity:.65}
+.review textarea.auto-input,.field textarea.auto-input{min-height:0}

@@ -19,6 +19,7 @@ import { FEATURES, APP_VERSION } from './config';
 import { exportFileName } from './utils/exportName';
 import { useDrive } from './hooks/useDrive';
 import { HistoryPanel } from './components/HistoryPanel';
+import { AutoInput, AutoTextarea } from './components/AutoGrow';
 import { AttachControl, ConversationExport, MessageDownload, MessageExtras } from './components/ConversationFiles';
 import { Attachment, applyAttachmentNotes, attachmentOnlyText, collectAttachments, fitRequest, historyForRequest } from './utils/attachments';
 import { en } from './i18n/en';
@@ -872,7 +873,7 @@ function BriefScreen({
             </button>
           ))}
         </div>
-        <textarea
+        <AutoTextarea
           className="story-input conversation-input"
           rows={7}
           autoFocus
@@ -1026,7 +1027,7 @@ function ConversationScreen({
         <>
           <AttachControl value={files} onChange={setFiles} disabled={busy} />
           <div className="conversation-composer">
-            <textarea
+            <AutoTextarea
               value={input}
               dir="auto"
               onChange={(e) => setInput(e.target.value)}
@@ -1316,7 +1317,7 @@ function UnderstandScreen({
                     {u === current && (
                       <div className="question" style={{ marginTop: 10 }}>
                         {u.howToFindOut && <p dir="auto"><b className="ui-label">How to find out:</b> {u.howToFindOut}</p>}
-                        <textarea value={answer} onChange={(e) => setAnswer(e.target.value)} placeholder="Your answer, or leave it blank if you do not know" rows={4} style={{ width: '100%' }} />
+                        <AutoTextarea value={answer} onChange={(e) => setAnswer(e.target.value)} placeholder="Your answer, or leave it blank if you do not know" rows={4} style={{ width: '100%' }} />
                         <div className="actions" style={{ marginTop: 10 }}>
                           <button className="primary" disabled={!answer.trim() || busy} onClick={() => resolveCurrent('ANSWER')}>Answer <ArrowRight size={16} /></button>
                           <button className="ghost" disabled={busy} onClick={() => resolveCurrent('UNKNOWN')}>I don't know</button>
@@ -1670,7 +1671,7 @@ function Field({ label, value, onChange }: { label: string; value: string; onCha
   return (
     <label className="field">
       <span>{label}</span>
-      <input value={value} onChange={(e) => onChange(e.target.value)} />
+      <AutoInput value={value} onChange={(e) => onChange(e.target.value)} />
     </label>
   );
 }
@@ -1805,7 +1806,7 @@ function ExperimentCardEditor({
             Help phrase it (model does not set confidence)
           </button>
         )}
-        <textarea
+        <AutoTextarea
           placeholder="Forecast wording"
           value={exp.forecast?.wording || ''}
           disabled={locked}
@@ -1824,7 +1825,7 @@ function ExperimentCardEditor({
         />
         <label style={{ display: 'block', marginTop: 6 }}>
           Basis
-          <textarea
+          <AutoTextarea
             placeholder="What data/assumptions the forecast rests on"
             value={exp.forecast?.rationale || ''}
             disabled={locked}
@@ -2126,14 +2127,14 @@ function DecideScreen({
       <AssistantMessage>
         <p style={{ marginTop: 0 }}>You have seen the main possibilities and the main ways they could fail. I will not choose for you.</p>
         <p>Tell me, in plain language, what you are going to do now. It is also completely fine to postpone the decision or decide to gather one more fact first.</p>
-        <textarea
+        <AutoTextarea
           value={hd?.whatIDecided || ''}
           onChange={(e) => setHd({ whatIDecided: e.target.value })}
           placeholder="What are you going to do now?"
           rows={4}
           style={{ width: '100%' }}
         />
-        <textarea
+        <AutoTextarea
           value={hd?.onWhichValues || ''}
           onChange={(e) => setHd({ onWhichValues: e.target.value })}
           placeholder="Why does this make sense for you? (optional)"
@@ -2222,7 +2223,7 @@ function SynthesisScreen({
               External check: {d.synthesis.needsExternalCheck.join('; ')}
             </div>
           )}
-          <textarea
+          <AutoTextarea
             placeholder="Your notes (optional)"
             value={d.synthesis.editedByUser || ''}
             onChange={(e) =>
@@ -2309,7 +2310,7 @@ function LearnScreen({
       </button>
       {d.journal.map((j) => (
         <div key={j.id} className="question" style={{ marginTop: 10 }}>
-          <input
+          <AutoInput
             placeholder="Hypothesis"
             value={j.hypothesis}
             disabled={!!j.fact || !!j.reviewedAt}
@@ -2321,7 +2322,7 @@ function LearnScreen({
               })
             }
           />
-          <input
+          <AutoInput
             placeholder="Forecast (wording)"
             value={j.forecastWording}
             disabled={!!j.fact || !!j.reviewedAt}
@@ -2357,7 +2358,7 @@ function LearnScreen({
               });
             }}
           />
-          <input
+          <AutoInput
             placeholder="Basis"
             value={j.rationale || ''}
             disabled={!!j.reviewedAt}
@@ -2369,7 +2370,7 @@ function LearnScreen({
               })
             }
           />
-          <input
+          <AutoInput
             placeholder="Fact / result"
             value={j.fact || ''}
             disabled={!!j.reviewedAt}
@@ -2454,7 +2455,7 @@ function LearnScreen({
             <option value="EXECUTION">Execution</option>
             <option value="LUCK">Chance</option>
           </select>
-          <input
+          <AutoInput
             placeholder="What I updated"
             value={j.whatIUpdated || ''}
             disabled={!!j.reviewedAt}
