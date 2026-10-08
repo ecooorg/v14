@@ -11,7 +11,7 @@ const cfg = read('src/config.ts');
 const pkg = JSON.parse(read('package.json'));
 
 assert.match(cfg, /APP_VERSION\s*=\s*'1\.5\.0'/);
-assert.equal(pkg.version, '1.5.0');
+assert.equal(pkg.version, '1.5.1');
 for (const label of ['Shorter', 'Add table', 'Remove section', 'Choose heading', 'Save…', 'Word (.docx)', 'PDF', 'Google Docs']) assert.match(app, new RegExp(label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
 assert.match(app, /\/api\/revise-document/);
 assert.match(app, /onDocumentEdit/);
