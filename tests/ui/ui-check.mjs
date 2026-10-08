@@ -115,18 +115,20 @@ try {
 
     // Current UI calls the toggle "Expert mode" / "Simple mode". Verify the
     // real mode switch instead of the obsolete "Method" / "Normal mode" labels.
-    const mode = page.getByRole('button', { name: /^(Expert mode|Simple mode)$/ });
-    if (await mode.count()) {
-      const before = (await mode.first().innerText()).trim();
-      await mode.first().click();
+    const mode = page.locator('.header-actions > button.ghost').filter({ has: page.locator('svg') }).filter({ hasText: /Expert mode|Simple mode/ });
+    const modeButton = page.locator('.header-actions > button.ghost[title="Expert mode"], .header-actions > button.ghost[title="Simple mode"]').first();
+    if (await modeButton.count()) {
+      const before = await modeButton.getAttribute('title');
+      await modeButton.click();
       const expected = before === 'Expert mode' ? 'Simple mode' : 'Expert mode';
-      const back = page.getByRole('button', { name: new RegExp(`^${expected}$`) });
-      if (await back.count()) {
+      const back = page.locator(`.header-actions > button.ghost[title="${expected}"]`).first();
+      await back.waitFor({ state: 'visible', timeout: 5000 }).catch(() => {});
+      if (await back.count() && await back.isVisible()) {
         await noHScroll('(mode switched)'); await taps('(mode switched)');
         const box = await back.first().boundingBox();
         box && box.x >= -1 && box.x + box.width <= w + 1 ? good(w, `${expected} button reachable`) : bad(w, `${expected} button off screen`);
         await back.first().click();
-        (await page.getByRole('button', { name: new RegExp(`^${before}$`) }).count())
+        (await page.locator(`.header-actions > button.ghost[title="${before}"]`).count())
           ? good(w, 'mode restored')
           : bad(w, 'could not restore previous mode');
       } else bad(w, `no "${expected}" button after mode switch`);
