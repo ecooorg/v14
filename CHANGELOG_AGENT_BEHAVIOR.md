@@ -1,6 +1,19 @@
 # Agent behavior and model routing changes
 
+## v1.4.3
+
+Stage 3 of the unified v1.5 plan: Program files archive in IndexedDB.
+
+- **IndexedDB store** (`programFiles.ts`): name, kind, size, addedAt, text (≤30k), summary, usedIn, content hash. Originals are not stored.
+- **Auto-archive** on device attach and when the agent returns a document.
+- **Add file → From program files**: multi-select picker, add to current dialogue, delete from archive.
+- **More → Program files**: full list manager.
+- **Export all / Import**: JSON backup includes `programFiles`; import merges by hash.
+- **Quota warning** via `navigator.storage.estimate` when usage ≥ 85%.
+- One-shot migration of existing conversation attachments into the archive.
+
 ## v1.4.2
+
 
 Stage 2 of the unified v1.5 plan + CI fix for virtual attach tests.
 
