@@ -9,5 +9,5 @@ export const FEATURES = {
 const envInterval = Number((import.meta as any).env?.VITE_AUTOSAVE_MIN_INTERVAL_MS);
 export const AUTOSAVE_MIN_INTERVAL_MS = Number.isFinite(envInterval) && envInterval >= 0 && (import.meta as any).env?.VITE_AUTOSAVE_MIN_INTERVAL_MS ? envInterval : 30000;
 
-export const APP_VERSION = '1.4.1';
+export const APP_VERSION = '1.4.2';
 export const SCHEMA_VERSION = 11;

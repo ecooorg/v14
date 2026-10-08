@@ -21,8 +21,12 @@ import { exportFileName } from './utils/exportName';
 import { useDrive } from './hooks/useDrive';
 import { HistoryPanel } from './components/HistoryPanel';
 import { AutoInput, AutoTextarea } from './components/AutoGrow';
-import { AttachControl, ConversationExport, MessageDownload, MessageExtras } from './components/ConversationFiles';
-import { Attachment, applyAttachmentNotes, attachmentOnlyText, collectAttachments, fitRequest, historyForRequest } from './utils/attachments';
+import { FilesPanel, MessageDownload, MessageExtras } from './components/ConversationFiles';
+import {
+  Attachment, DocumentSpec, applyAttachmentNotes, attachmentOnlyText, collectAttachments,
+  conversationToDocument, fitRequest, historyForRequest,
+} from './utils/attachments';
+import { detectUiLanguage } from './i18n/ui';
 import { en } from './i18n/en';
 import { triage, TRIAGE_OUTCOME_TEXT, TRIAGE_OUTCOME_LABEL } from './core/triage';
 import { evpi, evpiRange, evpiVerdict, validateEvpiInput } from './core/evpi';
@@ -597,11 +601,22 @@ function Header(props: {
   historyAvailable?: boolean;
 }) {
   const [moreOpen, setMoreOpen] = useState(false);
-  const driveLabel = props.driveBusy ? 'Saving…' : props.driveConnected ? 'Save to Drive' : 'Connect Drive';
+  const moreRef = useRef<HTMLDivElement>(null);
+  // Cloud is a sync status indicator only; actions live under More → Import / Export all.
+  const driveLabel = props.driveBusy ? 'Syncing…' : props.driveConnected ? 'Drive connected' : 'Drive';
+  React.useEffect(() => {
+    if (!moreOpen) return;
+    const onDoc = (e: MouseEvent) => {
+      if (moreRef.current && !moreRef.current.contains(e.target as Node)) setMoreOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setMoreOpen(false); };
+    document.addEventListener('mousedown', onDoc);
+    document.addEventListener('keydown', onKey);
+    return () => { document.removeEventListener('mousedown', onDoc); document.removeEventListener('keydown', onKey); };
+  }, [moreOpen]);
   return (
     <header className="header" style={{ justifyContent: 'flex-end' }}>
       <div className="header-actions">
-        {/* Primary actions: always visible, always labelled */}
         {props.onToggleExpert && (
           <button className="ghost" onClick={props.onToggleExpert} title={props.expertMode ? 'Simple mode' : 'Expert mode'}>
             <SlidersHorizontal size={14} /> <span className="lbl">{props.expertMode ? 'Simple mode' : 'Expert mode'}</span>
@@ -609,7 +624,7 @@ function Header(props: {
         )}
         <button className="ghost" onClick={props.onNew} title="New"><Plus size={14} /> <span className="lbl">New</span></button>
         {props.onDrive && (
-          <button className="ghost" onClick={props.onDrive} disabled={props.driveBusy}>
+          <button className="ghost" onClick={props.onDrive} disabled={props.driveBusy} title={driveLabel}>
             {props.driveConnected ? <CloudUpload size={14} /> : <Cloud size={14} />} <span className="lbl">{driveLabel}</span>
           </button>
         )}
@@ -618,23 +633,36 @@ function Header(props: {
             ? <button className="ghost" disabled title="This browser cannot store data (private mode?)"><HistoryIcon size={14} /> <span className="lbl">History not saved</span></button>
             : <button className="ghost" onClick={props.onHistory} title="History"><HistoryIcon size={14} /> <span className="lbl">History</span></button>
         )}
-        <button className="ghost hdr-more-btn" title="More" aria-expanded={moreOpen} onClick={() => setMoreOpen((v) => !v)}>
-          <MoreHorizontal size={14} /> <span className="lbl">More</span>
-        </button>
-        {/* Secondary actions: inline on wide screens, in the More menu on narrow ones */}
-        <div className={`hdr-secondary${moreOpen ? ' open' : ''}`}>
-          {props.expertMode && props.onBrief && <button className="ghost" onClick={props.onBrief}>Brief</button>}
-          {props.expertMode && props.onExport && <button className="ghost" onClick={props.onExport}><Download size={14} /> Export</button>}
-          {props.expertMode && <button className="ghost" onClick={props.onExportAll}><Download size={14} /> Export all</button>}
-          {props.expertMode && <label className="ghost" style={{ cursor: 'pointer' }}>
-            <Upload size={14} /> Import
-            <input type="file" accept="application/json" hidden onChange={(e) => {
-              const f = e.target.files?.[0];
-              if (f) props.onImport(f);
-            }} />
-          </label>}
-          {props.onGoogleAI && <button className="ghost" onClick={props.onGoogleAI}><KeyRound size={14} /> Google AI</button>}
-          {props.expertMode && props.onDelete && <button className="ghost danger" aria-label="Delete" onClick={props.onDelete}><Trash2 size={14} /></button>}
+        <div className="hdr-more-wrap" ref={moreRef}>
+          <button className="ghost hdr-more-btn" title="More" aria-expanded={moreOpen} onClick={() => setMoreOpen((v) => !v)}>
+            <MoreHorizontal size={14} /> <span className="lbl">More</span>
+          </button>
+          {/* Unified More menu (same order in both modes; Brief / Delete only in expert) */}
+          <div className={`hdr-secondary${moreOpen ? ' open' : ''}`} role="menu">
+            <button type="button" className="ghost" role="menuitem" onClick={() => { setMoreOpen(false); props.onExportAll(); }}>
+              <Download size={14} /> Export all
+            </button>
+            <label className="ghost" style={{ cursor: 'pointer' }} role="menuitem">
+              <Upload size={14} /> Import
+              <input type="file" accept="application/json" hidden onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) { props.onImport(f); setMoreOpen(false); }
+              }} />
+            </label>
+            {props.onGoogleAI && (
+              <button type="button" className="ghost" role="menuitem" onClick={() => { setMoreOpen(false); props.onGoogleAI?.(); }}>
+                <KeyRound size={14} /> Google AI
+              </button>
+            )}
+            {props.expertMode && props.onBrief && (
+              <button type="button" className="ghost" role="menuitem" onClick={() => { setMoreOpen(false); props.onBrief?.(); }}>Brief</button>
+            )}
+            {props.expertMode && props.onDelete && (
+              <button type="button" className="ghost danger" role="menuitem" aria-label="Delete" onClick={() => { setMoreOpen(false); props.onDelete?.(); }}>
+                <Trash2 size={14} /> Delete dialogue
+              </button>
+            )}
+          </div>
         </div>
         {props.driveMessage && <span className="hdr-msg">{props.driveMessage}</span>}
       </div>
@@ -839,10 +867,15 @@ function BriefScreen({
     const text = b.decision.trim() || attachmentOnlyText(files);
     window.dispatchEvent(new CustomEvent('be:user-language', { detail: { text } }));
     const userMessage: any = { role: 'user', content: text, at: Date.now(), ...(files.length ? { attachments: files } : {}) };
+    // Persist pending so ConversationScreen can Retry if this first call fails.
     update({
       title: text.slice(0, 80) || d.title,
       brief: { ...b, decision: text },
-      modelSuggestions: { ...d.modelSuggestions, conversation: [userMessage] },
+      modelSuggestions: {
+        ...d.modelSuggestions,
+        conversation: [userMessage],
+        pendingSend: { text, files: [...files], intent },
+      },
       step: 'UNDERSTAND',
       interactionState: 'UNDERSTANDING',
     });
@@ -857,6 +890,7 @@ function BriefScreen({
           conversationState: data.state,
           conversationNextStep: data.triage === 'CRISIS' ? '' : data.nextStep || '',
           conversationCrisis: data.triage === 'CRISIS',
+          pendingSend: undefined,
         },
         interactionState: 'PREVIEW_READY',
       });
@@ -937,7 +971,14 @@ function BriefScreen({
           onPaste={onPaste}
         />
         {distress && <SafetyBox />}
-        <AttachControl value={files} onChange={setFiles} disabled={busy} />
+        <FilesPanel
+          files={files}
+          onFilesChange={setFiles}
+          disabled={busy}
+          expertMode={false}
+          title={d.title || b.decision.slice(0, 40) || 'Decision'}
+          history={[]}
+        />
         <div className="conversation-entry-actions">
           <button className="primary" disabled={!canContinue || busy} onClick={submit}>{busy ? 'Thinking…' : 'Send'} <ArrowRight size={16} /></button>
           <span className="conversation-hint">Ctrl/Cmd + Enter</span>
@@ -1016,16 +1057,19 @@ function ConversationScreen({
   const history: any[] = Array.isArray(ms.conversation) ? ms.conversation : [];
   const waitingForAssistant = history.length > 0 && history[history.length - 1]?.role === 'user';
   const nextStep: string = typeof ms.conversationNextStep === 'string' ? ms.conversationNextStep : '';
-  const userTurns = history.filter((m: any) => m.role === 'user').length;
   const lastAssistant = [...history].reverse().find((m: any) => m.role === 'assistant');
   const askedQuestion = !!lastAssistant && /[?\uFF1F\u061F]\s*$/.test(String(lastAssistant.content || '').split('\n---\n')[0].trim());
   const distress =
     !!ms.conversationCrisis ||
     !!findDistressInTexts([input, ...history.filter((m: any) => m.role === 'user').slice(-3).map((m: any) => m.content)]);
 
-  // Pending payload kept so Retry can re-send after a network / model failure
-  // without forcing the person to retype and re-attach.
-  const pendingRef = useRef<{ text: string; files: Attachment[]; intent?: string } | null>(null);
+  // Pending payload kept so Retry can re-send after a network / model failure.
+  // Also restored from modelSuggestions.pendingSend (set by BriefScreen on first send).
+  const pendingRef = useRef<{ text: string; files: Attachment[]; intent?: string } | null>(
+    ms.pendingSend && typeof ms.pendingSend.text === 'string'
+      ? { text: ms.pendingSend.text, files: Array.isArray(ms.pendingSend.files) ? ms.pendingSend.files : [], intent: ms.pendingSend.intent }
+      : null,
+  );
 
   const send = (override?: string, intent?: string, fromRetry?: boolean, filesOverride?: Attachment[]) => {
     const activeFiles = filesOverride ?? files;
@@ -1038,10 +1082,14 @@ function ConversationScreen({
     const baseHistory = fromRetry && waitingForAssistant ? history.slice(0, -1) : history;
     const userMsg = { role: 'user' as const, content: text, at: Date.now(), ...(activeFiles.length ? { attachments: activeFiles } : {}) };
     const nextHistory = [...baseHistory, userMsg];
-    pendingRef.current = { text, files: [...activeFiles], intent };
+    const pending = { text, files: [...activeFiles], intent };
+    pendingRef.current = pending;
     setInput('');
     setFiles([]);
-    update({ modelSuggestions: { ...d.modelSuggestions, conversation: nextHistory }, interactionState: 'UNDERSTANDING' });
+    update({
+      modelSuggestions: { ...d.modelSuggestions, conversation: nextHistory, pendingSend: pending },
+      interactionState: 'UNDERSTANDING',
+    });
     runApi(
       '/api/conversation',
       fitRequest({ brief: d.brief, history: historyForRequest(nextHistory), attachments: collectAttachments(nextHistory), state: ms.conversationState, intent, returningAfterDays: days >= 1 ? days : undefined }),
@@ -1055,6 +1103,7 @@ function ConversationScreen({
             conversationState: data.state ?? ms.conversationState,
             conversationNextStep: data.triage === 'CRISIS' ? '' : data.nextStep || nextStep,
             conversationCrisis: data.triage === 'CRISIS',
+            pendingSend: undefined,
           },
           interactionState: 'PREVIEW_READY',
         });
@@ -1063,8 +1112,19 @@ function ConversationScreen({
   };
 
   const retry = () => {
-    const p = pendingRef.current;
+    const fromStore = ms.pendingSend && typeof ms.pendingSend.text === 'string'
+      ? { text: ms.pendingSend.text, files: Array.isArray(ms.pendingSend.files) ? ms.pendingSend.files : [], intent: ms.pendingSend.intent }
+      : null;
+    const p = pendingRef.current || fromStore;
     if (!p || busy) return;
+    // Fallback: resend last user message text from history if files were lost.
+    if (!p.text && waitingForAssistant) {
+      const last = history[history.length - 1];
+      if (last?.role === 'user') {
+        send(String(last.content || ''), undefined, true, Array.isArray(last.attachments) ? last.attachments : []);
+        return;
+      }
+    }
     send(p.text, p.intent, true, p.files);
   };
 
@@ -1128,6 +1188,7 @@ function ConversationScreen({
                 <button type="button" className="ghost retry-button" onClick={retry} aria-label="Retry">
                   <RotateCcw size={14} /> Retry
                 </button>
+                <span className="conversation-hint">No reply yet — try again</span>
               </div>
             )}
           </div>
@@ -1141,27 +1202,39 @@ function ConversationScreen({
           <span translate="no" dir="auto">{nextStep}</span>
         </div>
       )}
+      {/* Stage 2: permanent Files panel — always two buttons, both modes */}
+      <FilesPanel
+        files={files}
+        onFilesChange={setFiles}
+        disabled={busy}
+        expertMode={false}
+        title={d.title}
+        history={history}
+        canCalendar={Array.isArray(d.brief?.reviewDates) && d.brief.reviewDates.length > 0}
+        onAgentSummary={() => send(input.trim() ? input : DOCUMENT_REQUEST, 'DOCUMENT')}
+        onCalendar={() => {
+          const events = (d.brief.reviewDates || []).map((date: string, i: number) => ({
+            uid: `${d.id}-rev-${i}@bifurcation`,
+            date,
+            summary: `Decision review ${i + 1}`,
+          }));
+          const ics = buildIcs(events);
+          downloadBlob(new Blob([ics], { type: 'text/calendar' }), 'review.ics');
+        }}
+      />
       {history.some((m: any) => m.role === 'assistant') && !waitingForAssistant && !busy && (
-        <>
-          <AttachControl value={files} onChange={setFiles} disabled={busy} />
-          <div className="conversation-composer">
-            <AutoTextarea
-              value={input}
-              dir="auto"
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => { if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') send(); }}
-              onPaste={onPaste}
-              placeholder={askedQuestion ? 'Your answer. “I don’t know” is a fine answer too.' : 'Anything to add, or something you want to look at next?'}
-              rows={3}
-            />
-            <button className="primary" disabled={!input.trim() && !files.length} onClick={() => send()}>Send <ArrowRight size={16} /></button>
-          </div>
-          <div className="conversation-tools">
-            <ConversationExport title={d.title} history={history} />
-            <button className="ghost" onClick={() => send(input.trim() ? input : DOCUMENT_REQUEST, 'DOCUMENT')}>Create a document</button>
-            {userTurns >= 2 && <button className="ghost" onClick={() => send(NOTE_REQUEST, 'NOTE')}>Write this up as a short note</button>}
-          </div>
-        </>
+        <div className="conversation-composer">
+          <AutoTextarea
+            value={input}
+            dir="auto"
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => { if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') send(); }}
+            onPaste={onPaste}
+            placeholder={askedQuestion ? 'Your answer. “I don’t know” is a fine answer too.' : 'Anything to add, or something you want to look at next?'}
+            rows={3}
+          />
+          <button className="primary" disabled={!input.trim() && !files.length} onClick={() => send()}>Send <ArrowRight size={16} /></button>
+        </div>
       )}
     </div>
   );
