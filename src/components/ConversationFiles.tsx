@@ -4,7 +4,8 @@ import {
   ACCEPT_FILES, Attachment, DocumentSpec, MAX_FILES_PER_MESSAGE, conversationToDocument,
   downloadDocument, formatSize, messageToDocument, uploadAttachment,
 } from '../utils/attachments';
-import { detectUiLanguage } from '../i18n/ui';
+import { detectUiLanguage, getStoredUiLanguage } from '../i18n/ui';
+import { localizedException, type ErrorLanguage } from '../i18n/errors';
 import { isDriveConfigured } from '../utils/driveClient';
 import { saveDocumentToGoogleDocs, type SavedDoc } from '../utils/driveExport';
 import {
@@ -38,7 +39,7 @@ export function AttachControl({
     setUploading((n) => n + chosen.length);
     for (const f of chosen) {
       try {
-        const a = await uploadAttachment(f);
+        const a = await uploadAttachment(f, getStoredUiLanguage());
         next = [...next, a];
         onChange(next);
       } catch (e: any) {
@@ -102,10 +103,10 @@ export function AttachmentChips({ items, onRemove }: { items: Attachment[]; onRe
 function useDownload() {
   const [busy, setBusy] = useState<'docx' | 'pdf' | ''>('');
   const [error, setError] = useState('');
-  const run = async (doc: DocumentSpec, format: 'docx' | 'pdf') => {
+  const run = async (doc: DocumentSpec, format: 'docx' | 'pdf', language: 'en' | 'ru' = 'en') => {
     if (busy) return;
     setBusy(format); setError('');
-    try { await downloadDocument(doc, format); }
+    try { await downloadDocument(doc, format, false, language); }
     catch (e: any) { setError(e?.message || 'The download failed.'); }
     finally { setBusy(''); }
   };
@@ -135,12 +136,31 @@ export function DriveSaveButton({ getDoc }: { getDoc: () => DocumentSpec }) {
 }
 
 /** A document the agent prepared: title + one Save menu (same targets as the Files panel). */
-export function DocumentCard({ doc }: { doc: DocumentSpec }) {
+export function DocumentCard({ doc, onEdit }: { doc: DocumentSpec; onEdit?: (next: DocumentSpec) => void }) {
   const { busy, error, run } = useDownload();
   const [open, setOpen] = useState(false);
   const [driveBusy, setDriveBusy] = useState(false);
   const [status, setStatus] = useState('');
   const [statusLink, setStatusLink] = useState('');
+  const [editOpen, setEditOpen] = useState(false);
+  const [editBusy, setEditBusy] = useState(false);
+  const [section, setSection] = useState('');
+  const editDocument = async (action: 'shorter' | 'table' | 'remove-section') => {
+    setEditOpen(false); setEditBusy(true); setStatus(''); setStatusLink('');
+    try {
+      const r = await fetch('/api/revise-document', {
+        method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ document: doc, action, section: action === 'remove-section' ? section : undefined }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || !j.success) throw new Error(localizedException({ code: j.code, message: j.error }, getStoredUiLanguage(), j.error || 'Document edit failed.'));
+      if (j.data?.document && onEdit) onEdit(j.data.document);
+      setStatus(getStoredUiLanguage() === 'ru' ? 'Новая версия документа готова.' : 'New document version is ready.');
+    } catch (e: any) {
+      setStatus(localizedException(e, getStoredUiLanguage(), getStoredUiLanguage() === 'ru' ? 'Не удалось изменить документ.' : 'The document could not be edited.'));
+    } finally { setEditBusy(false); }
+  };
+
   const saveFormat = async (format: 'docx' | 'pdf' | 'gdocs') => {
     setOpen(false);
     setStatus('');
@@ -149,11 +169,11 @@ export function DocumentCard({ doc }: { doc: DocumentSpec }) {
       if (format === 'gdocs') {
         if (!isDriveConfigured()) { setStatus('Google sign-in is not configured.'); return; }
         setDriveBusy(true);
-        const saved = await saveDocumentToGoogleDocs(doc);
+        const saved = await saveDocumentToGoogleDocs(doc, false, getStoredUiLanguage());
         setStatus('Saved to Google Drive.');
         setStatusLink(saved?.link || '');
       } else {
-        await run(doc, format);
+        await run(doc, format, getStoredUiLanguage());
         setStatus(format === 'docx' ? 'Saved as Word.' : 'Saved as PDF.');
       }
     } catch (e: any) {
@@ -166,6 +186,21 @@ export function DocumentCard({ doc }: { doc: DocumentSpec }) {
     <div className="doc-card">
       <div className="doc-card-title"><FileText size={18} /><span translate="no" dir="auto">{doc.title}</span></div>
       <div className="doc-card-actions">
+        {onEdit && <div className="files-menu-wrap">
+          <button type="button" className="ghost" disabled={editBusy || !!busy || driveBusy} onClick={() => setEditOpen((v) => !v)} aria-expanded={editOpen}>
+            {editBusy ? 'Editing…' : 'Edit…'}
+          </button>
+          {editOpen && <div className="files-menu" role="menu">
+            <button type="button" role="menuitem" className="files-menu-item" onClick={() => void editDocument('shorter')}>Shorter</button>
+            <button type="button" role="menuitem" className="files-menu-item" onClick={() => void editDocument('table')}>Add table</button>
+            <div className="files-menu-label">Remove section</div>
+            <select aria-label="Section to remove" value={section} onChange={(e) => setSection(e.target.value)} style={{ margin: '0 8px 8px', maxWidth: 'calc(100% - 16px)' }}>
+              <option value="">Choose heading</option>
+              {doc.blocks.filter((b) => b.type === 'heading').map((b, i) => <option key={i} value={b.text}>{b.text}</option>)}
+            </select>
+            <button type="button" role="menuitem" className="files-menu-item" disabled={!section} onClick={() => void editDocument('remove-section')}>Remove</button>
+          </div>}
+        </div>}
         <div className="files-menu-wrap">
           <button type="button" className="ghost" disabled={!!busy || driveBusy} onClick={() => setOpen((v) => !v)} aria-expanded={open}>
             <Download size={14} />{busy || driveBusy ? 'Preparing…' : 'Save…'}
@@ -281,6 +316,9 @@ export function FilesPanel({
   const [what, setWhat] = useState<SaveWhat>(expertMode ? 'full-review' : 'dialogue');
   const [status, setStatus] = useState('');
   const [statusLink, setStatusLink] = useState('');
+  const [editOpen, setEditOpen] = useState(false);
+  const [editBusy, setEditBusy] = useState(false);
+  const [section, setSection] = useState('');
   const [busy, setBusy] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerList, setPickerList] = useState<ProgramFile[]>([]);
@@ -331,7 +369,7 @@ export function FilesPanel({
     let next = files;
     for (const f of chosen) {
       try {
-        const a = await uploadAttachment(f);
+        const a = await uploadAttachment(f, getStoredUiLanguage());
         next = [...next, a];
         onFilesChange(next);
         setStatus(`Added ${a.name}`);
@@ -362,11 +400,11 @@ export function FilesPanel({
       const doc = what === 'full-review' && buildFullReview ? buildFullReview() : dialogueDoc();
       if (where === 'gdocs') {
         if (!isDriveConfigured()) { setStatus('Google sign-in is not configured.'); return; }
-        const saved = await saveDocumentToGoogleDocs(doc);
+        const saved = await saveDocumentToGoogleDocs(doc, false, getStoredUiLanguage());
         setStatus('Saved to Google Drive.');
         setStatusLink(saved?.link || '');
       } else {
-        await downloadDocument(doc, where);
+        await downloadDocument(doc, where, false, getStoredUiLanguage());
         setStatus(where === 'docx' ? 'Saved as Word.' : 'Saved as PDF.');
       }
     } catch (e: any) {
@@ -582,14 +620,14 @@ export function ProgramFilesManager({ open, onClose }: { open: boolean; onClose:
 }
 
 /** Everything a message carries besides its text: files the person attached, a document the agent prepared. */
-export function MessageExtras({ message }: { message: any }) {
+export function MessageExtras({ message, onDocumentEdit }: { message: any; onDocumentEdit?: (next: DocumentSpec) => void }) {
   const attachments: Attachment[] = Array.isArray(message?.attachments) ? message.attachments : [];
   const doc: DocumentSpec | undefined = message?.document && Array.isArray(message.document.blocks) ? message.document : undefined;
   if (!attachments.length && !doc) return null;
   return (
     <>
       <AttachmentChips items={attachments} />
-      {doc && <DocumentCard doc={doc} />}
+      {doc && <DocumentCard doc={doc} onEdit={onDocumentEdit} />}
     </>
   );
 }
