@@ -1,3 +1,4 @@
+import { errorFromResponse, localizedException, type ErrorLanguage } from '../i18n/errors';
 /** Attachments (files the person adds to the chat) and documents (files the agent hands back). */
 export type AttachmentKind = 'pdf' | 'image' | 'docx' | 'xlsx' | 'pptx' | 'text';
 
@@ -34,9 +35,9 @@ export function formatSize(bytes: number): string {
 }
 
 /** Upload one file. The server reads it in memory and returns text (or a handle for images and scans). */
-export async function uploadAttachment(file: File): Promise<Attachment> {
-  if (file.size > MAX_FILE_BYTES) throw new Error(`“${file.name}” is larger than ${Math.round(MAX_FILE_BYTES / 1048576)} MB.`);
-  if (file.size === 0) throw new Error(`“${file.name}” is empty.`);
+export async function uploadAttachment(file: File, language: ErrorLanguage = 'en'): Promise<Attachment> {
+  if (file.size > MAX_FILE_BYTES) { const e = new Error(localizedException({ code: 'TOO_LARGE', message: `${Math.round(MAX_FILE_BYTES / 1048576)} MB` }, language)); (e as any).code = 'TOO_LARGE'; throw e; }
+  if (file.size === 0) { const e = new Error(localizedException({ code: 'EMPTY' }, language, 'The file is empty.')); (e as any).code = 'EMPTY'; throw e; }
   let r: Response;
   try {
     r = await fetch('/api/attach', {
@@ -46,10 +47,10 @@ export async function uploadAttachment(file: File): Promise<Attachment> {
       body: file,
     });
   } catch {
-    throw new Error('The upload failed. Check the connection and try again.');
+    throw new Error(language === 'ru' ? 'Не удалось загрузить файл. Проверьте соединение и повторите попытку.' : 'The upload failed. Check the connection and try again.');
   }
   const j = await r.json().catch(() => ({}));
-  if (!r.ok || !j.success) throw new Error(j.error || `The upload failed (${r.status}).`);
+  if (!r.ok || !j.success) throw errorFromResponse(j, language, language === 'ru' ? 'Не удалось загрузить файл.' : `The upload failed (${r.status}).`);
   const d = j.data;
   return {
     name: String(d.name || file.name), kind: d.kind, size: Number(d.size) || file.size,
@@ -180,21 +181,21 @@ export function conversationToDocument(title: string, history: any[], labels: { 
 }
 
 /** Asks the server to build the file. Returns the bytes and the English file name. Throws an Error with a readable message. */
-export async function buildDocumentFile(doc: DocumentSpec, format: 'docx' | 'pdf'): Promise<{ blob: Blob; name: string }> {
+export async function buildDocumentFile(doc: DocumentSpec, format: 'docx' | 'pdf', bulk = false, language: ErrorLanguage = 'en'): Promise<{ blob: Blob; name: string }> {
   let r: Response;
   try {
     r = await fetch('/api/export-document', {
       method: 'POST',
       credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ format, document: doc }),
+      body: JSON.stringify(bulk ? { format, document: doc, bulk: true } : { format, document: doc }),
     });
   } catch {
-    throw new Error('The download failed. Check the connection and try again.');
+    throw new Error(language === 'ru' ? 'Не удалось сохранить файл. Проверьте соединение и повторите попытку.' : 'The download failed. Check the connection and try again.');
   }
   if (!r.ok) {
     const j = await r.json().catch(() => ({}));
-    throw new Error(j.error || `The download failed (${r.status}).`);
+    throw errorFromResponse(j, language, language === 'ru' ? 'Не удалось сохранить файл.' : `The download failed (${r.status}).`);
   }
   const blob = await r.blob();
   const cd = r.headers.get('content-disposition') || '';
@@ -204,8 +205,8 @@ export async function buildDocumentFile(doc: DocumentSpec, format: 'docx' | 'pdf
 }
 
 /** Builds the file on the server and saves it to the device. */
-export async function downloadDocument(doc: DocumentSpec, format: 'docx' | 'pdf'): Promise<void> {
-  const { blob, name } = await buildDocumentFile(doc, format);
+export async function downloadDocument(doc: DocumentSpec, format: 'docx' | 'pdf', bulk = false, language: ErrorLanguage = 'en'): Promise<void> {
+  const { blob, name } = await buildDocumentFile(doc, format, bulk, language);
   saveBlob(blob, name);
 }
 

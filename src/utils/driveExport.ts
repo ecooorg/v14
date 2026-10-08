@@ -5,6 +5,7 @@
  */
 import { DRIVE_FILE_SCOPE, DriveAuthError, driveUploadAsGoogleDoc, requestDriveToken, type DriveToken } from './driveClient';
 import { buildDocumentFile, type DocumentSpec } from './attachments';
+import type { ErrorLanguage } from '../i18n/errors';
 
 const K_TOKEN = 'be_drive_docs_token', K_EXP = 'be_drive_docs_expires', MARGIN_MS = 30000;
 const ss = {
@@ -21,13 +22,13 @@ function cachedToken(): DriveToken | null {
 export interface SavedDoc { id: string; link: string; name: string }
 
 /** Call directly from a click handler: the Google sign-in popup needs the click. */
-export async function saveDocumentToGoogleDocs(doc: DocumentSpec): Promise<SavedDoc> {
+export async function saveDocumentToGoogleDocs(doc: DocumentSpec, bulk = false, language: ErrorLanguage = 'en'): Promise<SavedDoc> {
   let tok = cachedToken();
   if (!tok) {                                   // first await: keeps the click gesture for the popup
     tok = await requestDriveToken(DRIVE_FILE_SCOPE);
     ss.set(K_TOKEN, tok.token); ss.set(K_EXP, String(tok.expiresAt));
   }
-  const { blob, name } = await buildDocumentFile(doc, 'docx');
+  const { blob, name } = await buildDocumentFile(doc, 'docx', bulk, language);
   const title = name.replace(/\.docx$/i, '');
   try {
     const f = await driveUploadAsGoogleDoc(tok.token, title, blob);
