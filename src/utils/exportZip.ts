@@ -13,21 +13,14 @@ export function exportDecisionJson(d: Decision): Blob {
   });
 }
 
-export function exportAllJson(decisions: Decision[]): Blob {
-  return new Blob(
-    [
-      JSON.stringify(
-        {
-          schemaVersion: 8,
-          exportedAt: new Date().toISOString(),
-          decisions,
-        },
-        null,
-        2
-      ),
-    ],
-    { type: 'application/json' }
-  );
+export function exportAllJson(decisions: Decision[], programFiles?: unknown[]): Blob {
+  const payload: Record<string, unknown> = {
+    schemaVersion: 8,
+    exportedAt: new Date().toISOString(),
+    decisions,
+  };
+  if (programFiles && programFiles.length) payload.programFiles = programFiles;
+  return new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
 }
 
 /** Saves a file. The link stays alive briefly so Safari keeps the file name. */
@@ -91,4 +84,17 @@ export function parseImportedJson(text: string): Decision[] {
   }
   if (Array.isArray(data)) return validateImportedDecisions(data);
   throw new Error('Unknown import format');
+}
+
+/** Parse backup JSON; returns decisions and optional programFiles array. */
+export function parseImportedBackup(text: string): { decisions: Decision[]; programFiles: unknown[] } {
+  const decisions = parseImportedJson(text);
+  let programFiles: unknown[] = [];
+  try {
+    const data = JSON.parse(text);
+    if (data && typeof data === 'object' && Array.isArray((data as any).programFiles)) {
+      programFiles = (data as any).programFiles;
+    }
+  } catch { /* ignore */ }
+  return { decisions, programFiles };
 }
