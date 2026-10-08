@@ -3,6 +3,7 @@ import {
   AlertCircle, ArrowLeft, ArrowRight, BrainCircuit, Check, CircleHelp,
   Download, FlaskConical, KeyRound, Lock, Plus, ShieldAlert, Trash2, Upload,
   Cloud, CloudUpload, History as HistoryIcon, MoreHorizontal, SlidersHorizontal,
+  RotateCcw,
 } from 'lucide-react';
 import {
   Decision, emptyDecision, STAGES, LOOPS, Step, Option, ExperimentCard,
@@ -831,6 +832,8 @@ function BriefScreen({
   const [intent, setIntent] = useState<string>('THINK_ALOUD');
   const chip = INTENT_CHIPS.find((c) => c.id === intent) || INTENT_CHIPS[0];
 
+  const [dragOver, setDragOver] = useState(false);
+
   const submit = () => {
     if (!canContinue || busy) return;
     const text = b.decision.trim() || attachmentOnlyText(files);
@@ -860,8 +863,51 @@ function BriefScreen({
     });
   };
 
+  const onDragOver = (e: React.DragEvent) => {
+    if (busy || !e.dataTransfer?.types?.includes('Files')) return;
+    e.preventDefault();
+    e.stopPropagation();
+    setDragOver(true);
+  };
+  const onDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    setDragOver(false);
+  };
+  const onDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setDragOver(false);
+    if (busy) return;
+    const list = e.dataTransfer?.files;
+    if (list?.length) {
+      window.dispatchEvent(new CustomEvent('be:attach-files', { detail: { files: Array.from(list) } }));
+    }
+  };
+  const onPaste = (e: React.ClipboardEvent) => {
+    if (busy) return;
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    const pasted: File[] = [];
+    for (let i = 0; i < items.length; i++) {
+      const it = items[i];
+      if (it.kind === 'file') {
+        const f = it.getAsFile();
+        if (f) pasted.push(f);
+      }
+    }
+    if (pasted.length) {
+      e.preventDefault();
+      window.dispatchEvent(new CustomEvent('be:attach-files', { detail: { files: pasted } }));
+    }
+  };
+
   return (
-    <div className="conversation-shell">
+    <div
+      className={`conversation-shell${dragOver ? ' drag-over' : ''}`}
+      onDragOver={onDragOver}
+      onDragLeave={onDragLeave}
+      onDrop={onDrop}
+    >
+      {dragOver && <div className="drag-overlay" aria-hidden>Drop files to attach</div>}
       <div className="conversation-entry">
         <div className="conversation-promise">
           Not advice and not a verdict. We look for what you do not know yet, what you may be taking for granted, and the cheapest way to find out. Write in any language.
@@ -888,6 +934,7 @@ function BriefScreen({
           onKeyDown={(e) => {
             if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') submit();
           }}
+          onPaste={onPaste}
         />
         {distress && <SafetyBox />}
         <AttachControl value={files} onChange={setFiles} disabled={busy} />
@@ -964,6 +1011,7 @@ function ConversationScreen({
 }) {
   const [input, setInput] = useState('');
   const [files, setFiles] = useState<Attachment[]>([]);
+  const [dragOver, setDragOver] = useState(false);
   const ms: any = d.modelSuggestions || {};
   const history: any[] = Array.isArray(ms.conversation) ? ms.conversation : [];
   const waitingForAssistant = history.length > 0 && history[history.length - 1]?.role === 'user';
@@ -975,13 +1023,22 @@ function ConversationScreen({
     !!ms.conversationCrisis ||
     !!findDistressInTexts([input, ...history.filter((m: any) => m.role === 'user').slice(-3).map((m: any) => m.content)]);
 
-  const send = (override?: string, intent?: string) => {
-    const text = (override ?? input).trim() || (files.length ? attachmentOnlyText(files) : '');
+  // Pending payload kept so Retry can re-send after a network / model failure
+  // without forcing the person to retype and re-attach.
+  const pendingRef = useRef<{ text: string; files: Attachment[]; intent?: string } | null>(null);
+
+  const send = (override?: string, intent?: string, fromRetry?: boolean, filesOverride?: Attachment[]) => {
+    const activeFiles = filesOverride ?? files;
+    const text = (override ?? input).trim() || (activeFiles.length ? attachmentOnlyText(activeFiles) : '');
     if (!text || busy) return;
     window.dispatchEvent(new CustomEvent('be:user-language', { detail: { text } }));
     const lastAt: number | undefined = history.length ? history[history.length - 1]?.at : undefined;
     const days = lastAt ? Math.floor((Date.now() - lastAt) / 86400000) : 0;
-    const nextHistory = [...history, { role: 'user', content: text, at: Date.now(), ...(files.length ? { attachments: files } : {}) }];
+    // On retry the last history item is already the user message we are resending.
+    const baseHistory = fromRetry && waitingForAssistant ? history.slice(0, -1) : history;
+    const userMsg = { role: 'user' as const, content: text, at: Date.now(), ...(activeFiles.length ? { attachments: activeFiles } : {}) };
+    const nextHistory = [...baseHistory, userMsg];
+    pendingRef.current = { text, files: [...activeFiles], intent };
     setInput('');
     setFiles([]);
     update({ modelSuggestions: { ...d.modelSuggestions, conversation: nextHistory }, interactionState: 'UNDERSTANDING' });
@@ -989,6 +1046,7 @@ function ConversationScreen({
       '/api/conversation',
       fitRequest({ brief: d.brief, history: historyForRequest(nextHistory), attachments: collectAttachments(nextHistory), state: ms.conversationState, intent, returningAfterDays: days >= 1 ? days : undefined }),
       (data, meta) => {
+        pendingRef.current = null;
         update({
           modelSuggestions: {
             ...d.modelSuggestions,
@@ -1004,14 +1062,74 @@ function ConversationScreen({
     );
   };
 
+  const retry = () => {
+    const p = pendingRef.current;
+    if (!p || busy) return;
+    send(p.text, p.intent, true, p.files);
+  };
+
+  // Drag-and-drop onto the conversation shell
+  const onDragOver = (e: React.DragEvent) => {
+    if (busy || !e.dataTransfer?.types?.includes('Files')) return;
+    e.preventDefault();
+    e.stopPropagation();
+    setDragOver(true);
+  };
+  const onDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    setDragOver(false);
+  };
+  const onDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setDragOver(false);
+    if (busy) return;
+    const list = e.dataTransfer?.files;
+    if (list?.length) {
+      window.dispatchEvent(new CustomEvent('be:attach-files', { detail: { files: Array.from(list) } }));
+    }
+  };
+
+  // Paste image / files from clipboard into the composer
+  const onPaste = (e: React.ClipboardEvent) => {
+    if (busy) return;
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    const files: File[] = [];
+    for (let i = 0; i < items.length; i++) {
+      const it = items[i];
+      if (it.kind === 'file') {
+        const f = it.getAsFile();
+        if (f) files.push(f);
+      }
+    }
+    if (files.length) {
+      e.preventDefault();
+      window.dispatchEvent(new CustomEvent('be:attach-files', { detail: { files } }));
+    }
+  };
+
   return (
-    <div className="conversation-shell">
+    <div
+      className={`conversation-shell${dragOver ? ' drag-over' : ''}`}
+      onDragOver={onDragOver}
+      onDragLeave={onDragLeave}
+      onDrop={onDrop}
+    >
+      {dragOver && <div className="drag-overlay" aria-hidden>Drop files to attach</div>}
       <div className="conversation-thread">
         {history.map((m: any, i: number) => (
           <div key={i} className={`conversation-message ${m.role === 'user' ? 'user' : 'assistant'}`}>
             <div className="conversation-message-text" translate="no" dir="auto">{m.content}</div>
             <MessageExtras message={m} />
             {m.role === 'assistant' && !m.document && i === history.map((x: any) => x.role).lastIndexOf('assistant') && String(m.content || '').length >= 120 && !String(m.content).includes('\n---\n') && <MessageDownload title={d.title} text={String(m.content)} />}
+            {/* Retry under the last user message when the assistant never answered */}
+            {m.role === 'user' && i === history.length - 1 && waitingForAssistant && !busy && (
+              <div className="message-retry">
+                <button type="button" className="ghost retry-button" onClick={retry} aria-label="Retry">
+                  <RotateCcw size={14} /> Retry
+                </button>
+              </div>
+            )}
           </div>
         ))}
         {busy && <div className="conversation-message assistant"><div className="conversation-message-text conversation-thinking">Looking at your specific situation…</div></div>}
@@ -1032,6 +1150,7 @@ function ConversationScreen({
               dir="auto"
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => { if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') send(); }}
+              onPaste={onPaste}
               placeholder={askedQuestion ? 'Your answer. “I don’t know” is a fine answer too.' : 'Anything to add, or something you want to look at next?'}
               rows={3}
             />

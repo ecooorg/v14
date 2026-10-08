@@ -541,3 +541,11 @@ textarea.auto-input{display:block;width:100%;min-height:0;line-height:1.4;backgr
 textarea.auto-input:focus{border-color:#4c7ca6}
 textarea.auto-input:disabled{opacity:.65}
 .review textarea.auto-input,.field textarea.auto-input{min-height:0}
+
+/* ---- Stage 1 (v1.4.1): retry, privacy note, drag-drop ---- */
+.attach-privacy-note{font-size:11px;color:#6f8499;margin-left:2px;line-height:1.3}
+.message-retry{margin-top:6px}
+.retry-button{font-size:13px;display:inline-flex;align-items:center;gap:6px;min-height:44px}
+.conversation-shell{position:relative}
+.conversation-shell.drag-over{outline:2px dashed #4d7ea8;outline-offset:-4px;border-radius:12px}
+.drag-overlay{position:absolute;inset:0;z-index:20;display:flex;align-items:center;justify-content:center;background:rgba(10,22,34,.82);color:#cfe6ff;font-size:16px;font-weight:600;pointer-events:none;border-radius:12px}
