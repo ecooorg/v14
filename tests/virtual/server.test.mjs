@@ -149,7 +149,7 @@ try {
         },
       }),
     });
-    assert.equal(r.status, 200, await r.text());
+    assert.equal(r.status, 200);
     assert.match(r.headers.get('content-type') || '', /wordprocessingml/);
     const bytes = new Uint8Array(await r.arrayBuffer());
     assert.ok(bytes[0] === 0x50 && bytes[1] === 0x4b, 'DOCX should be a ZIP container');
@@ -167,7 +167,7 @@ try {
         },
       }),
     });
-    assert.equal(r.status, 200, await r.text());
+    assert.equal(r.status, 200);
     const cd = r.headers.get('content-disposition') || '';
     // Product rule: downloaded names are always English ASCII (transliterated title).
     assert.match(cd, /filename="[a-z0-9-]+\.pdf"/i);
@@ -186,7 +186,7 @@ try {
         },
       }),
     });
-    assert.equal(r.status, 200, await r.text());
+    assert.equal(r.status, 200);
     assert.match(r.headers.get('content-type') || '', /application\/pdf/);
     const text = Buffer.from(await r.arrayBuffer()).subarray(0, 5).toString('ascii');
     assert.equal(text, '%PDF-');
