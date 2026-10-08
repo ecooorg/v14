@@ -193,3 +193,8 @@ Files in the conversation. The decision method, state logic and every existing p
 - The application counts model calls against `DAILY_CALL_CAP`; requests with the user's own key (`x-byok-key`) are not counted.
 - The conversation quality-gate retry explicitly starts on the reserve strong model (index 1), as do the synthesis and shape-check retries.
 - `meta.lightFallback` is set when the strong chain ends up on a light model.
+
+## v1.5.1 — UI fixes
+- More menu is a proper floating vertical dropdown on narrow screens.
+- Open-question answer textarea has an explicit bordered input style.
+- Gemini attachment privacy note is shown only when a file is actually attached.

@@ -1,4 +1,4 @@
-# Bifurcation Engine v1.5.0
+# Bifurcation Engine v1.5.1
 
 Decision cockpit implementing the **Before You Choose** method (Bifurcation Engine).
 

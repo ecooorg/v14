@@ -1,4 +1,4 @@
-# Railway deployment — v1.5.0
+# Railway deployment — v1.5.1
 
 The decision method and the answer layer are described in `CHANGELOG_AGENT_BEHAVIOR.md`. Infrastructure changes are kept separate from the decision methodology.
 
