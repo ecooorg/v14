@@ -584,3 +584,6 @@ textarea.auto-input:disabled{opacity:.65}
 .pf-row small{color:#6f8499;font-size:11px}
 .pf-modal-actions{display:flex;justify-content:flex-end;gap:8px;padding-top:6px}
 .pf-row-main input[type=checkbox]{width:18px;height:18px;accent-color:#4d7ea8}
+
+.hdr-sub{display:flex;flex-direction:column;gap:4px;padding-left:14px;width:100%}
+.hdr-sub .ghost{justify-content:flex-start;text-align:left}
