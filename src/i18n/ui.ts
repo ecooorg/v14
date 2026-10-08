@@ -14,6 +14,13 @@ Object.assign(RU, {
   'Save to Google Docs': 'Сохранить в Google Docs', 'Saved to Google Drive.': 'Сохранено на Google Диск.', 'Open in Google Docs': 'Открыть в Google Docs',
   'Please prepare a document I can download: a clear summary of this conversation with what matters to me, what is not known yet and the next step.':
     'Подготовьте документ, который я смогу скачать: чёткое резюме этого разговора — что для меня важно, что пока неизвестно и каков следующий шаг.',
+  // Stage 1 (v1.4.1)
+  'File will be sent to Gemini': 'Файл будет отправлен в Gemini',
+  'Copy': 'Копировать',
+  'Copied': 'Скопировано',
+  'Drop files to attach': 'Перетащите файлы сюда',
+  'You can attach up to 5 files to one message.': 'К одному сообщению можно прикрепить не больше 5 файлов.',
+  'The file could not be attached.': 'Не удалось прикрепить файл.',
 });
 
 function translateText(value: string, language: UiLanguage): string {
