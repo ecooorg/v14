@@ -11,10 +11,15 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // ---- fake Gemini: any generateContent call returns a markdown-laden JSON reply ----
 let fakeHits = 0;
 const fake = http.createServer((req, res) => {
-  req.resume(); req.on('end', () => {
+  const chunks = [];
+  req.on('data', (d) => chunks.push(d));
+  req.on('end', () => {
     fakeHits++;
-    const reply = '**Key point** here.\n* first item\n+ second item\n## Heading\nPlain text.';
-    const text = JSON.stringify({ reply, contextSufficiency: 'HIGH', question: '', options: [], newOptions: [], nextStep: '' });
+    const body = Buffer.concat(chunks).toString();
+    const revision = body.includes('CURRENT DOCUMENT:');
+    const text = revision
+      ? JSON.stringify({ document: { title: 'Revised note', blocks: [{ type: 'paragraph', text: 'Shorter revised content.' }] } })
+      : JSON.stringify({ reply: '**Key point** here.\n* first item\n+ second item\n## Heading\nPlain text.', contextSufficiency: 'HIGH', question: '', options: [], newOptions: [], nextStep: '' });
     res.setHeader('Content-Type', 'application/json');
     res.end(JSON.stringify({ candidates: [{ content: { role: 'model', parts: [{ text }] }, finishReason: 'STOP' }] }));
   });
@@ -132,6 +137,20 @@ try {
     assert.equal(r.status, 415);
     const j = await r.json();
     assert.equal(j.code, 'UNSUPPORTED_TYPE');
+  });
+
+  await t('document quick edit uses one model call and returns a new document', async () => {
+    const before = fakeHits;
+    const r = await post(srv, '/api/revise-document', {
+      action: 'shorter',
+      document: { title: 'Original', blocks: [{ type: 'heading', text: 'A' }, { type: 'paragraph', text: 'Long text.' }] },
+    }, { cookie });
+    assert.equal(r.status, 200);
+    const j = await r.json();
+    assert.equal(j.success, true);
+    assert.equal(j.data.document.title, 'Revised note');
+    assert.equal(j.meta.calls, 1);
+    assert.equal(fakeHits, before + 1);
   });
 
   await t('document endpoint generates DOCX', async () => {
