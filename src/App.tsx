@@ -21,13 +21,13 @@ import { exportFileName } from './utils/exportName';
 import { useDrive } from './hooks/useDrive';
 import { HistoryPanel } from './components/HistoryPanel';
 import { AutoInput, AutoTextarea } from './components/AutoGrow';
-import { FilesPanel, MessageDownload, MessageExtras, ProgramFilesManager } from './components/ConversationFiles';
+import { decisionToDocument } from './utils/decisionDocument';
+import { FilesPanel, CopyButton, MessageExtras, ProgramFilesManager } from './components/ConversationFiles';
 import {
   Attachment, DocumentSpec, applyAttachmentNotes, attachmentOnlyText, collectAttachments,
   conversationToDocument, fitRequest, historyForRequest,
 } from './utils/attachments';
 import { migrateAttachmentsFromDecisions, exportProgramFilesPayload, importProgramFilesPayload, archiveAgentDocument, archiveAttachment } from './utils/programFiles';
-import { detectUiLanguage } from './i18n/ui';
 import { en } from './i18n/en';
 import { triage, TRIAGE_OUTCOME_TEXT, TRIAGE_OUTCOME_LABEL } from './core/triage';
 import { evpi, evpiRange, evpiVerdict, validateEvpiInput } from './core/evpi';
@@ -546,6 +546,19 @@ export default function App() {
               </>
             )}
           </ErrorBoundary>
+          {expertMode && d.step !== 'BRIEF' && (
+            <FilesPanel
+              files={[]}
+              onFilesChange={() => {}}
+              hideAdd
+              expertMode
+              title={d.title}
+              history={Array.isArray((d.modelSuggestions as any)?.conversation) ? (d.modelSuggestions as any).conversation : []}
+              canCalendar={Array.isArray(d.brief?.reviewDates) && d.brief.reviewDates.length > 0}
+              onCalendar={() => icsDownload(d)}
+              buildFullReview={() => decisionToDocument(d)}
+            />
+          )}
         </main>
       </div>
 
@@ -842,6 +855,11 @@ const INTENT_CHIPS: { id: string; label: string; hint: string }[] = [
 
 const NOTE_REQUEST =
   'Please write this up as a short note for me: what matters to me, what I do not know yet, and what I will find out this week.';
+function icsDownload(d: Decision) {
+  const events = (d.brief.reviewDates || []).map((date: string, i: number) => ({ uid: `${d.id}-rev-${i}@bifurcation`, date, summary: `Decision review ${i + 1}` }));
+  downloadBlob(new Blob([buildIcs(events)], { type: 'text/calendar' }), 'review.ics');
+}
+
 const DOCUMENT_REQUEST =
   'Please prepare a document I can download: a clear summary of this conversation with what matters to me, what is not known yet and the next step.';
 
@@ -1202,7 +1220,7 @@ function ConversationScreen({
           <div key={i} className={`conversation-message ${m.role === 'user' ? 'user' : 'assistant'}`}>
             <div className="conversation-message-text" translate="no" dir="auto">{m.content}</div>
             <MessageExtras message={m} />
-            {m.role === 'assistant' && !m.document && i === history.map((x: any) => x.role).lastIndexOf('assistant') && String(m.content || '').length >= 120 && !String(m.content).includes('\n---\n') && <MessageDownload title={d.title} text={String(m.content)} />}
+            {m.role === 'assistant' && !m.document && i === history.map((x: any) => x.role).lastIndexOf('assistant') && String(m.content || '').length >= 120 && !String(m.content).includes('\n---\n') && <CopyButton title={d.title} text={String(m.content)} />}
             {/* Retry under the last user message when the assistant never answered */}
             {m.role === 'user' && i === history.length - 1 && waitingForAssistant && !busy && (
               <div className="message-retry">
@@ -1233,15 +1251,7 @@ function ConversationScreen({
         history={history}
         canCalendar={Array.isArray(d.brief?.reviewDates) && d.brief.reviewDates.length > 0}
         onAgentSummary={() => send(input.trim() ? input : DOCUMENT_REQUEST, 'DOCUMENT')}
-        onCalendar={() => {
-          const events = (d.brief.reviewDates || []).map((date: string, i: number) => ({
-            uid: `${d.id}-rev-${i}@bifurcation`,
-            date,
-            summary: `Decision review ${i + 1}`,
-          }));
-          const ics = buildIcs(events);
-          downloadBlob(new Blob([ics], { type: 'text/calendar' }), 'review.ics');
-        }}
+        onCalendar={() => icsDownload(d)}
       />
       {history.some((m: any) => m.role === 'assistant') && !waitingForAssistant && !busy && (
         <div className="conversation-composer">
@@ -2736,20 +2746,6 @@ function LearnScreen({
         </div>
       )}
       <div className="actions" style={{ marginTop: 16 }}>
-        <button
-          className="ghost"
-          onClick={() => {
-            const events = (d.brief.reviewDates || []).map((date, i) => ({
-              uid: `${d.id}-rev-${i}@bifurcation`,
-              date,
-              summary: 'Decision review',
-            }));
-            const ics = buildIcs(events);
-            downloadBlob(new Blob([ics], { type: 'text/calendar' }), 'review.ics');
-          }}
-        >
-          Download .ics
-        </button>
         <button className="primary" onClick={onNextCycle}>
           {en.nextCycle}
         </button>
