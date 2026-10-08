@@ -4,6 +4,7 @@
  */
 import express from 'express';
 import crypto from 'node:crypto';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import dotenv from 'dotenv';
@@ -15,7 +16,7 @@ import { collectAllowedFromInput, validateNumbers } from './src/core/numberValid
 import { APP_VERSION } from './src/config.ts';
 import { V17_LAYER_PROMPT, buildVisibleReply, firstQuestionOnly, mergeModelState, normalizeState, readInternalFlags, scrubInternalLabels } from './server/reasoningState.ts';
 import { LoginLimiter, SESSION_COOKIE, clearedCookie, createSessionSigner, sessionCookie, stripMarkdown } from './server/security.ts';
-import { MAX_UPLOAD_BYTES, NativeFileCache, UploadError, buildAttachmentsBlock, makeWindowLimiter, normalizeAttachments, processUpload, safeFileName } from './server/files.ts';
+import { MAX_UPLOAD_BYTES, NativeFileCache, UploadError, buildAttachmentsBlock, makeWindowLimiter, normalizeAttachments, processUpload, resolveAttachments, safeFileName } from './server/files.ts';
 import { buildDocx, buildPdf, documentFileName, sanitizeDocument } from './server/documents.ts';
 
 dotenv.config();
@@ -66,6 +67,14 @@ const ai = apiKey ? new GoogleGenAI({ apiKey }) : null;
 const nativeCache = new NativeFileCache();
 const attachLimiter = makeWindowLimiter(30, 10 * 60 * 1000);
 const exportLimiter = makeWindowLimiter(60, 10 * 60 * 1000);
+// B1: files of the expert endpoints. The middleware below resolves them once per request; generate() appends the block to every prompt of that request (retries included).
+const expertFiles = new AsyncLocalStorage<ReturnType<typeof resolveAttachments>>();
+const EXPERT_PATHS = new Set(['neutralize', 'radar', 'understand', 'knowledge-map', 'expand', 'redteam-pair', 'redteam', 'premortem', 'experiment-draft', 'forecast-wording', 'synthesis', 'review'].map((x) => `/api/${x}`));
+app.use((req, _res, next) => {
+  if (req.method !== 'POST' || !EXPERT_PATHS.has(req.path)) return next();
+  const att = resolveAttachments(req);
+  return att.count ? expertFiles.run(att, next) : next();
+});
 interface GenerateOpts { extraParts?: any[]; extraNumberSource?: string; extraChars?: number }
 
 // Availability-first defaults. These are deliberately conservative: the router learns from
@@ -538,6 +547,11 @@ async function generate(
   budget?: { used: number },   // S-4: shared by every generate() of one HTTP request
   opts?: GenerateOpts,         // attachments: extra parts the model must look at, and text whose numbers are the person's own
 ): Promise<{ data: unknown; meta: { model: string; fallback: boolean; durationMs: number; stage: string; calls: number; lightFallback: boolean; promptChars: number; inputTokens?: number; outputTokens?: number } }> {
+  const ef = expertFiles.getStore();
+  if (ef && !opts?.extraParts) {
+    prompt = `${prompt}\n\n${ef.block}`;
+    opts = { ...opts, extraNumberSource: ef.numberSource, extraChars: ef.block.length };
+  }
   const key = byokKey || apiKey;
   if (!key) throw new Error('No Gemini API key is configured. Add a Gemini API key in Google AI settings or configure GEMINI_API_KEY on Railway.');
   const client = new GoogleGenAI({ apiKey: key, ...(GEMINI_BASE_URL ? { httpOptions: { baseUrl: GEMINI_BASE_URL } } : {}) });
@@ -1704,7 +1718,7 @@ app.post('/api/synthesis', async (req, res) => {
     const requestByokKey = byokFromRequest(req);
     const requestPreferredModel = preferredModelFromRequest(req);
     if (!aiGate(req, res)) return;
-    const body = req.body || {};
+    const { attachments: _files, ...body } = req.body || {};   // files go in their own block, not into the JSON input
     const input = JSON.stringify(body);
     const prompt = `Step synthesis. Full decision context:
 ${input}

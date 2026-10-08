@@ -1,5 +1,15 @@
 # Agent behavior and model routing changes
 
+## v1.4.5
+
+Package B1: files in expert requests.
+
+- Server: one helper `resolveAttachments(req)` (`server/files.ts`) normalizes attachments, limits them to 20 000 characters in total (chat: 60 000; env `EXPERT_ATTACH_TOTAL_CHARS`) and builds the «ATTACHED FILES» block (data, never instructions; numbers in files count as the person's own). It is applied to all 12 expert endpoints (neutralize, radar, understand, knowledge-map, expand, redteam-pair, redteam, premortem, experiment-draft, forecast-wording, synthesis, review) by one middleware; retries reuse it. Images and scans are not sent again: only their saved description. Without files requests are unchanged.
+- Client: optional `Decision.files` (no migration). `collectDecisionAttachments` merges decision files and chat-message files (duplicates once); `runApi` adds them to every expert request. A file added in one mode is visible in the other.
+- UI: «Add file» (device or program files) is shown in the Files panel of every expert stage.
+- Test: `tests/virtual/expert-files.test.mjs` (fake Gemini, all 12 paths with and without files, limit, defanging); added to `run.sh`.
+- Not run in the sandbox (no dependencies, no network): run `npm ci && npm run check`.
+
 ## v1.4.4
 
 Package A of the remaining v1.5 work: defects of v1.4.3.
