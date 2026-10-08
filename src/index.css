@@ -569,3 +569,18 @@ textarea.auto-input:disabled{opacity:.65}
 @media(max-width:700px){
   .files-menu{left:0;right:auto;bottom:auto;top:calc(100% + 6px);position:fixed;left:8px;right:8px;bottom:8px;top:auto;max-width:none;border-radius:16px 16px 12px 12px}
 }
+
+/* ---- Stage 3 (v1.4.3): Program files (IndexedDB) ---- */
+.files-panel-warn{font-size:12px;color:#e0b35a}
+.pf-modal{position:fixed;inset:0;z-index:80;background:rgba(5,12,20,.72);display:flex;align-items:flex-end;justify-content:center;padding:12px}
+@media(min-width:700px){.pf-modal{align-items:center}}
+.pf-modal-card{width:100%;max-width:520px;max-height:min(88vh,720px);overflow:auto;background:#0d1c2b;border:1px solid #2a455c;border-radius:16px;padding:14px 16px;display:flex;flex-direction:column;gap:10px}
+.pf-modal-head{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.pf-hint,.pf-empty{font-size:13px;color:#8aa0b5;margin:0;line-height:1.45}
+.pf-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
+.pf-row{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 4px;border-bottom:1px solid #1b3042}
+.pf-row-main{display:flex;flex-wrap:wrap;align-items:center;gap:8px;min-width:0;flex:1;font-size:14px}
+.pf-name{font-weight:600;color:#e7f1fa;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:220px}
+.pf-row small{color:#6f8499;font-size:11px}
+.pf-modal-actions{display:flex;justify-content:flex-end;gap:8px;padding-top:6px}
+.pf-row-main input[type=checkbox]{width:18px;height:18px;accent-color:#4d7ea8}

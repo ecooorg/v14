@@ -14,18 +14,19 @@ import {
   getStoredDecisions, saveDecisions, getActiveDecisionId, setActiveDecisionId,
   getPrivacyAccepted, setPrivacyAccepted, getMigrationReport, getArchived,
 } from './utils/storage';
-import { exportDecisionJson, exportAllJson, downloadBlob, parseImportedJson } from './utils/exportZip';
+import { exportDecisionJson, exportAllJson, downloadBlob, parseImportedJson, parseImportedBackup } from './utils/exportZip';
 import { DISTRESS_MARKERS, SUPPORT_CONTACTS, hasDistressMarker, findDistressInTexts } from './config/support';
 import { FEATURES, APP_VERSION } from './config';
 import { exportFileName } from './utils/exportName';
 import { useDrive } from './hooks/useDrive';
 import { HistoryPanel } from './components/HistoryPanel';
 import { AutoInput, AutoTextarea } from './components/AutoGrow';
-import { FilesPanel, MessageDownload, MessageExtras } from './components/ConversationFiles';
+import { FilesPanel, MessageDownload, MessageExtras, ProgramFilesManager } from './components/ConversationFiles';
 import {
   Attachment, DocumentSpec, applyAttachmentNotes, attachmentOnlyText, collectAttachments,
   conversationToDocument, fitRequest, historyForRequest,
 } from './utils/attachments';
+import { migrateAttachmentsFromDecisions, exportProgramFilesPayload, importProgramFilesPayload, archiveAgentDocument, archiveAttachment } from './utils/programFiles';
 import { detectUiLanguage } from './i18n/ui';
 import { en } from './i18n/en';
 import { triage, TRIAGE_OUTCOME_TEXT, TRIAGE_OUTCOME_LABEL } from './core/triage';
@@ -118,6 +119,7 @@ export default function App() {
   const [message, setMessage] = useState('');
   const [privacy, setPrivacy] = useState(() => getPrivacyAccepted());
   const [showBrief, setShowBrief] = useState(false);
+  const [showProgramFiles, setShowProgramFiles] = useState(false);
   const [expertMode, setExpertMode] = useState(false);
   const [migrationReport] = useState(() => getMigrationReport());
   const [authChecked, setAuthChecked] = useState(false);
@@ -179,6 +181,12 @@ export default function App() {
   useEffect(() => {
     saveDecisions(decisions);
   }, [decisions]);
+
+  // Stage 3: one-shot migration of attachment texts into IndexedDB program files
+  useEffect(() => {
+    void migrateAttachmentsFromDecisions(decisions).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   useEffect(() => {
     if (active?.id) setActiveDecisionId(active.id);
   }, [active?.id]);
@@ -332,10 +340,11 @@ export default function App() {
         <Header
           onNew={createNew}
           onExportAll={() =>
-            downloadBlob(exportAllJson(decisions), exportFileName())
+            void exportProgramFilesPayload().then((pf) => downloadBlob(exportAllJson(decisions, pf), exportFileName()))
           }
           onDrive={drive.onButton}
           onGoogleAI={openGoogleAI}
+          onProgramFiles={() => setShowProgramFiles(true)}
           driveConnected={drive.connected}
           driveBusy={drive.busy}
           driveMessage={drive.message}
@@ -345,7 +354,7 @@ export default function App() {
             const reader = new FileReader();
             reader.onload = () => {
               try {
-                const list = parseImportedJson(String(reader.result));
+                const backup = parseImportedBackup(String(reader.result)); const list = backup.decisions; void importProgramFilesPayload(backup.programFiles);
                 setDecisions((prev) => [...list, ...prev]);
                 setMessage(`Imported: ${list.length}`);
               } catch (e: any) {
@@ -401,10 +410,11 @@ export default function App() {
           downloadBlob(exportDecisionJson(d), `${d.title.slice(0, 40) || d.id}.json`)
         }
         onExportAll={() =>
-          downloadBlob(exportAllJson(decisions), exportFileName())
+          void exportProgramFilesPayload().then((pf) => downloadBlob(exportAllJson(decisions, pf), exportFileName()))
         }
         onDrive={drive.onButton}
         onGoogleAI={openGoogleAI}
+          onProgramFiles={() => setShowProgramFiles(true)}
           driveConnected={drive.connected}
         driveBusy={drive.busy}
         driveMessage={drive.message}
@@ -414,7 +424,7 @@ export default function App() {
           const reader = new FileReader();
           reader.onload = () => {
             try {
-              const list = parseImportedJson(String(reader.result));
+              const backup = parseImportedBackup(String(reader.result)); const list = backup.decisions; void importProgramFilesPayload(backup.programFiles);
               setDecisions((prev) => [...list, ...prev]);
               setMessage(`Imported: ${list.length}`);
             } catch (e: any) {
@@ -539,6 +549,9 @@ export default function App() {
         </main>
       </div>
 
+      {showProgramFiles && (
+        <ProgramFilesManager open={showProgramFiles} onClose={() => setShowProgramFiles(false)} />
+      )}
       {showBrief && (
         <BriefPanel d={d} onClose={() => setShowBrief(false)} update={update} />
       )}
@@ -597,6 +610,7 @@ function Header(props: {
   driveBusy?: boolean;
   driveMessage?: string;
   onGoogleAI?: () => void;
+  onProgramFiles?: () => void;
   onHistory?: () => void;
   historyAvailable?: boolean;
 }) {
@@ -649,6 +663,11 @@ function Header(props: {
                 if (f) { props.onImport(f); setMoreOpen(false); }
               }} />
             </label>
+            {props.onProgramFiles && (
+              <button type="button" className="ghost" role="menuitem" onClick={() => { setMoreOpen(false); props.onProgramFiles?.(); }}>
+                Program files
+              </button>
+            )}
             {props.onGoogleAI && (
               <button type="button" className="ghost" role="menuitem" onClick={() => { setMoreOpen(false); props.onGoogleAI?.(); }}>
                 <KeyRound size={14} /> Google AI
@@ -894,6 +913,7 @@ function BriefScreen({
         },
         interactionState: 'PREVIEW_READY',
       });
+      if (data.document) void archiveAgentDocument(data.document, d.id);
     });
   };
 
@@ -1107,6 +1127,7 @@ function ConversationScreen({
           },
           interactionState: 'PREVIEW_READY',
         });
+        if (data.document) void archiveAgentDocument(data.document, d.id);
       },
     );
   };
