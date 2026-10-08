@@ -37,19 +37,21 @@ const str = (v: unknown, max: number, clean: (s: string) => string): string =>
  * Turns whatever the model (or a client) sent into a safe DocumentSpec, or null if nothing usable is left.
  * Idempotent: sanitizing an already clean document returns the same document.
  */
-export function sanitizeDocument(raw: unknown, clean: (s: string) => string = (s) => s): DocumentSpec | null {
+export function sanitizeDocument(raw: unknown, clean: (s: string) => string = (s) => s, bulk = false): DocumentSpec | null {
+  // bulk: whole-library export (every dialogue is a chapter); higher block and size ceilings.
+  const lim = bulk ? { ...LIMITS, blocks: 5000, totalChars: 2_000_000 } : LIMITS;
   if (!raw || typeof raw !== 'object') return null;
   const r = raw as Record<string, unknown>;
   const title = str(r.title, LIMITS.title, clean).replace(/\s*\n+\s*/g, ' ');
   const src = Array.isArray(r.blocks) ? r.blocks : [];
   const blocks: DocBlock[] = [];
   let total = title.length;
-  const room = (n: number) => { total += n; return total <= LIMITS.totalChars; };
+  const room = (n: number) => { total += n; return total <= lim.totalChars; };
 
   const list = (v: unknown): string[] =>
     (Array.isArray(v) ? v : []).slice(0, LIMITS.items).map((x) => str(x, LIMITS.item, clean)).filter(Boolean);
 
-  for (const b of src.slice(0, LIMITS.blocks)) {
+  for (const b of src.slice(0, lim.blocks)) {
     if (!b || typeof b !== 'object') continue;
     const o = b as Record<string, unknown>;
     const type = String(o.type || '').toLowerCase();
