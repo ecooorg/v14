@@ -1,5 +1,17 @@
 # Agent behavior and model routing changes
 
+## v1.4.4
+
+Package A of the remaining v1.5 work: defects of v1.4.3.
+
+- **A1** Build fixed: `detectUiLanguage` was imported twice in `App.tsx`.
+- **A2** Save to Google Docs fixed: the document itself (not a function) is passed to `saveDocumentToGoogleDocs`; the status now contains a real «Open in Google Docs» link (panel and document card).
+- **A3** Files panel under every expert stage (Save only; «Add file» stays hidden until attachments reach expert requests). Save → «Whole decision review» (`decisionToDocument`) is the default there; «Whole dialogue» and «Agent summary» appear only when they apply.
+- **A4** Removed the old «Download .ics» button; the calendar is in Save → Reminder calendar (one shared helper).
+- **A5** Restored `tests/virtual/files.test.mjs` (24 checks: upload, files to the model, document in the reply, downloads) and added it to `run.sh`.
+- **A6** `npm run check` now runs `tsc --noEmit` (`npm run typecheck`); `MessageDownload` renamed `CopyButton`.
+- **A7** Open for the owner: run the stage2 virtual suite with a real Gemini key and record the result here (31 failures were seen only in the sandbox without one).
+
 ## v1.4.3
 
 Stage 3 of the unified v1.5 plan: Program files archive in IndexedDB.
