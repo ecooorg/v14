@@ -45,7 +45,20 @@ Object.assign(RU, {
   'Requesting summary from the agent…': 'Запрашиваю итог у агента…',
   'Calendar downloaded.': 'Календарь скачан.',
   'Google sign-in is not configured.': 'Вход в Google не настроен.',
+  // Stage 3 (v1.4.3)
+  'Program files': 'Файлы программы',
+  'Close': 'Закрыть',
+  'Cancel': 'Отмена',
+  'Done': 'Готово',
+  'Delete': 'Удалить',
+  'Add to dialogue': 'Добавить в диалог',
+  'No files in the archive yet. Attach a file from the device — its text is kept here for reuse.': 'В архиве пока нет файлов. Прикрепите файл с устройства — его текст сохранится здесь для повторного использования.',
+  'Archive is empty.': 'Архив пуст.',
+  'Only text and descriptions are stored in this browser. Originals are not kept. Included in Export all (JSON backup).': 'В этом браузере хранятся только текст и описания. Оригиналы не сохраняются. Попадают в «Экспортировать всё» (резервная копия JSON).',
+  'Could not open program files.': 'Не удалось открыть файлы программы.',
+  'Storage is almost full. Delete unused program files or export a backup.': 'Память почти заполнена. Удалите ненужные файлы программы или сделайте резервную копию.',
 });
+
 
 function translateText(value: string, language: UiLanguage): string {
   if (language !== 'ru') return value;
