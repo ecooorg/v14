@@ -1,3 +1,11 @@
+## v1.6.0
+
+- Token Economy: conversation requests keep the durable decision state and the latest turns, instead of re-sending the full recent transcript to Gemini on every turn. The client history is unchanged; only model input is compacted.
+- The conversation model context is capped at the latest 8 messages, with each message capped at 6000 characters. The original decision remains in `brief`, while older durable facts continue through `conversationState`.
+- Gemini usage logs now record `cachedTokens` from `usageMetadata.cachedContentTokenCount` when the provider returns it. This is measurement only; no explicit Context Cache or Interactions API dependency was added.
+- Retry metadata also sums cached-token counts, alongside input/output tokens, so the existing usage telemetry remains accurate across retries.
+- No user-visible functionality, stored dialogue history, attachment handling, or model cascade was removed.
+
 ## v1.5.0
 - Package C: document quick edits (shorten, add table, remove section) use one model request per action; the previous document version remains in dialogue history.
 - File/document errors now use interface-language messages from `src/i18n/errors.ts`, including upload, export and API error codes.
@@ -193,8 +201,3 @@ Files in the conversation. The decision method, state logic and every existing p
 - The application counts model calls against `DAILY_CALL_CAP`; requests with the user's own key (`x-byok-key`) are not counted.
 - The conversation quality-gate retry explicitly starts on the reserve strong model (index 1), as do the synthesis and shape-check retries.
 - `meta.lightFallback` is set when the strong chain ends up on a light model.
-
-## v1.5.1 — UI fixes
-- More menu is a proper floating vertical dropdown on narrow screens.
-- Open-question answer textarea has an explicit bordered input style.
-- Gemini attachment privacy note is shown only when a file is actually attached.

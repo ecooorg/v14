@@ -547,7 +547,7 @@ async function generate(
   preferredModel?: string,
   budget?: { used: number },   // S-4: shared by every generate() of one HTTP request
   opts?: GenerateOpts,         // attachments: extra parts the model must look at, and text whose numbers are the person's own
-): Promise<{ data: unknown; meta: { model: string; fallback: boolean; durationMs: number; stage: string; calls: number; lightFallback: boolean; promptChars: number; inputTokens?: number; outputTokens?: number } }> {
+): Promise<{ data: unknown; meta: { model: string; fallback: boolean; durationMs: number; stage: string; calls: number; lightFallback: boolean; promptChars: number; inputTokens?: number; outputTokens?: number; cachedTokens?: number } }> {
   const ef = expertFiles.getStore();
   if (ef && !opts?.extraParts) {
     prompt = `${prompt}\n\n${ef.block}`;
@@ -569,6 +569,7 @@ async function generate(
   let promptChars = 0;
   let inputTokens: number | undefined;
   let outputTokens: number | undefined;
+  let cachedTokens: number | undefined;
   const ownKey = Boolean(byokKey);   // the user's own key never uses the server's daily cap
 
   // One pass through the adaptive queue is normally enough. A second pass is allowed
@@ -617,10 +618,12 @@ async function generate(
         const um: any = (r as any).usageMetadata;
         const inTok = Number.isFinite(um?.promptTokenCount) ? Number(um.promptTokenCount) : undefined;
         const outTok = Number.isFinite(um?.candidatesTokenCount) ? Number(um.candidatesTokenCount) : undefined;
+        const cachedTok = Number.isFinite(um?.cachedContentTokenCount) ? Number(um.cachedContentTokenCount) : undefined;
         promptChars += sentChars;
         if (inTok !== undefined) inputTokens = (inputTokens || 0) + inTok;
         if (outTok !== undefined) outputTokens = (outputTokens || 0) + outTok;
-        console.info(JSON.stringify({ type: 'llm_usage', model, stage, promptChars: sentChars, inputTokens: inTok, outputTokens: outTok, latencyMs }));
+        if (cachedTok !== undefined) cachedTokens = (cachedTokens || 0) + cachedTok;
+        console.info(JSON.stringify({ type: 'llm_usage', model, stage, promptChars: sentChars, inputTokens: inTok, outputTokens: outTok, cachedTokens: cachedTok, latencyMs }));
         if (!r.text) throw new Error('Empty AI response');
 
         let problem = '';
@@ -650,7 +653,7 @@ async function generate(
           data: parsed,
           meta: { model, fallback: globalIndex > 0, durationMs: Date.now() - t0, stage, calls: attempts,
             lightFallback: modelClass === 'strong' && isLightModel(model),
-            promptChars, ...(inputTokens !== undefined ? { inputTokens } : {}), ...(outputTokens !== undefined ? { outputTokens } : {}) },
+            promptChars, ...(inputTokens !== undefined ? { inputTokens } : {}), ...(outputTokens !== undefined ? { outputTokens } : {}), ...(cachedTokens !== undefined ? { cachedTokens } : {}) },
         };
       } catch (e: any) {
         if (e instanceof GeminiFormatError) throw e;
@@ -826,6 +829,22 @@ function conversationGainAudit(out: any, contextSufficiency: string) {
   };
 }
 
+// Token Economy v1.6: the conversation state already carries durable facts, assumptions,
+// unknowns and hypotheses. Keep only the most recent turns in the raw transcript so older
+// prose is not re-sent on every turn. The full history remains on the client and is still
+// used for rendering/export; only the model input is compacted.
+const CONVERSATION_CONTEXT_MESSAGES = 8;
+const CONVERSATION_MESSAGE_MAX_CHARS = 6000;
+
+function compactConversationHistory(history: any[]): any[] {
+  const normalized = history.map((m: any) => ({
+    role: m?.role === 'user' ? 'user' : 'assistant',
+    content: String(m?.content || '').slice(0, CONVERSATION_MESSAGE_MAX_CHARS),
+  }));
+  if (normalized.length <= CONVERSATION_CONTEXT_MESSAGES) return normalized;
+  return normalized.slice(-CONVERSATION_CONTEXT_MESSAGES);
+}
+
 // --- POST /api/conversation ---
 // Normal mode: one concrete, user-facing conversation loop. The method stays internal.
 function buildConversationPrompt(input: string, attachmentsBlock = ''): string {
@@ -948,13 +967,14 @@ app.post('/api/conversation', async (req, res) => {
     if (!aiGate(req, res)) return;
     const { brief, history = [], state, intent, returningAfterDays, attachments: rawAttachments } = req.body || {};
     if (!brief?.decision) return fail(res, 400, 'No decision text', 'PRECONDITION');
-    const safeHistory = Array.isArray(history)
+    const fullHistory = Array.isArray(history)
       ? history.slice(-12).map((m: any) => ({ role: m?.role === 'user' ? 'user' : 'assistant', content: String(m?.content || '').slice(0, 8000) }))
       : [];
+    const safeHistory = compactConversationHistory(fullHistory);
     // v17: old and new state shapes are read the same way; size is capped; junk becomes an empty state.
     const safeState = normalizeState(state);
-    const userTurns = safeHistory.filter((m: any) => m.role === 'user').length;
-    const lastUserText = [...safeHistory].reverse().find((m: any) => m.role === 'user')?.content || String(brief.decision || '');
+    const userTurns = fullHistory.filter((m: any) => m.role === 'user').length;
+    const lastUserText = [...fullHistory].reverse().find((m: any) => m.role === 'user')?.content || String(brief.decision || '');
     const distressMarkerDetected = hasDistressMarker(lastUserText) || (userTurns <= 1 && hasDistressMarker(String(brief.decision || '')));
     const INTENTS = ['THINK_ALOUD', 'ARGUE_AGAINST', 'PREPARE_CONVERSATION', 'WHAT_FIRST', 'NOTE', 'DOCUMENT'];
     const context = {
@@ -1015,13 +1035,15 @@ The reply must contain at least one of: a reframed question, a hidden assumption
           const sumOpt = (a?: number, b?: number) => (a === undefined && b === undefined ? undefined : (a || 0) + (b || 0));
           const inTokSum = sumOpt(firstMeta.inputTokens, retry.meta.inputTokens);
           const outTokSum = sumOpt(firstMeta.outputTokens, retry.meta.outputTokens);
+          const cachedTokSum = sumOpt((firstMeta as any).cachedTokens, (retry.meta as any).cachedTokens);
           // PERF-01: meta counts every model call of the request, not only the last one
           meta = { ...retry.meta, fallback: true,
             calls: firstMeta.calls + retry.meta.calls,
             promptChars: firstMeta.promptChars + retry.meta.promptChars,
             durationMs: firstMeta.durationMs + retry.meta.durationMs,
             ...(inTokSum !== undefined ? { inputTokens: inTokSum } : {}),
-            ...(outTokSum !== undefined ? { outputTokens: outTokSum } : {}) };
+            ...(outTokSum !== undefined ? { outputTokens: outTokSum } : {}),
+            ...(cachedTokSum !== undefined ? { cachedTokens: cachedTokSum } : {}) };
           out = retryOut;
           contextSufficiency = normSufficiency(out);
           audit = conversationGainAudit(out, contextSufficiency);
@@ -1078,8 +1100,8 @@ The reply must contain at least one of: a reframed question, a hidden assumption
       attachmentNotes,
       state: mergeModelState(out.state, {
         previous: safeState,
-        userTexts: [String(brief.decision || ''), ...safeHistory.filter((m: any) => m.role === 'user').map((m: any) => m.content)],
-        lastAssistantText: [...safeHistory].reverse().find((m: any) => m.role === 'assistant')?.content || '',
+        userTexts: [String(brief.decision || ''), ...fullHistory.filter((m: any) => m.role === 'user').map((m: any) => m.content)],
+        lastAssistantText: [...fullHistory].reverse().find((m: any) => m.role === 'assistant')?.content || '',
       }),
     }, meta);
   } catch (e: any) {
@@ -1475,9 +1497,9 @@ Only from already known data, no new facts.`;
 // reserve model, inside the request's model-call budget (MAX_MODEL_CALLS). Returns the issues that remain, if any.
 function sumMeta(a: any, b: any) {
   const sum = (x?: number, y?: number) => (x === undefined && y === undefined ? undefined : (x || 0) + (y || 0));
-  const inT = sum(a.inputTokens, b.inputTokens), outT = sum(a.outputTokens, b.outputTokens);
+  const inT = sum(a.inputTokens, b.inputTokens), outT = sum(a.outputTokens, b.outputTokens), cachedT = sum(a.cachedTokens, b.cachedTokens);
   return { ...b, calls: a.calls + b.calls, promptChars: a.promptChars + b.promptChars, durationMs: a.durationMs + b.durationMs,
-    ...(inT !== undefined ? { inputTokens: inT } : {}), ...(outT !== undefined ? { outputTokens: outT } : {}) };
+    ...(inT !== undefined ? { inputTokens: inT } : {}), ...(outT !== undefined ? { outputTokens: outT } : {}), ...(cachedT !== undefined ? { cachedTokens: cachedT } : {}) };
 }
 async function generateChecked(
   prompt: string, input: string, stage: string, check: (data: any) => string[], byokKey?: string, preferredModel?: string,
@@ -1741,10 +1763,10 @@ Do not choose for the user: one conditional path, not a verdict “choose X”. 
         const ri = synthesisIssues(retry.data);
         const um = meta as any, rm = retry.meta as any;
         const sum = (a?: number, b?: number) => (a === undefined && b === undefined ? undefined : (a || 0) + (b || 0));
-        const inT = sum(um.inputTokens, rm.inputTokens), outT = sum(um.outputTokens, rm.outputTokens);
+        const inT = sum(um.inputTokens, rm.inputTokens), outT = sum(um.outputTokens, rm.outputTokens), cachedT = sum(um.cachedTokens, rm.cachedTokens);
         if (ri.length < issues.length) { data = retry.data; issues = ri; meta = rm; }
         meta = { ...meta, calls: um.calls + rm.calls, promptChars: um.promptChars + rm.promptChars, durationMs: um.durationMs + rm.durationMs,
-          ...(inT !== undefined ? { inputTokens: inT } : {}), ...(outT !== undefined ? { outputTokens: outT } : {}) };
+          ...(inT !== undefined ? { inputTokens: inT } : {}), ...(outT !== undefined ? { outputTokens: outT } : {}), ...(cachedT !== undefined ? { cachedTokens: cachedT } : {}) };
       } catch (retryErr: any) {
         console.error('[synthesis-retry] failed, returning first draft:', retryErr?.message || retryErr);
       }
