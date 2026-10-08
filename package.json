@@ -16,7 +16,9 @@
     "test:reasoning": "tsx tests/reasoning.test.mjs",
     "test:export": "tsx tests/export-name.test.mjs",
     "test:sync": "tsx tests/driveSync.test.mjs",
-    "check": "node scripts/check-version.mjs && npm run test:version && npm run lint:copy && npm run test:merge && npm run test:security && npm run test:core && npm run test:reasoning && npm run test:export && npm run test:sync && npm run test:virtual",
+    "test:files": "tsx tests/files.test.mjs",
+    "test:drivedocs": "tsx tests/driveDocs.test.mjs",
+    "check": "node scripts/check-version.mjs && npm run test:version && npm run lint:copy && npm run test:merge && npm run test:security && npm run test:core && npm run test:reasoning && npm run test:export && npm run test:sync && npm run test:files && npm run test:drivedocs && npm run test:virtual",
     "test:virtual": "bash tests/virtual/run.sh",
     "test:ui": "node --import tsx tests/ui/ui-check.mjs",
     "test:version": "node tests/version-check.test.mjs"
@@ -25,32 +27,30 @@
     "@google/genai": "^2.4.0",
     "@tailwindcss/vite": "^4.3.3",
     "@vitejs/plugin-react": "^6.1.1",
+    "dejavu-fonts-ttf": "^2.37.3",
+    "docx": "^9.9.0",
     "dotenv": "^17.2.3",
     "express": "^4.21.2",
     "jszip": "^3.10.2",
     "lucide-react": "^0.546.0",
+    "pdfkit": "^0.20.2",
     "react": "^19.0.1",
     "react-dom": "^19.0.1",
     "tsx": "^4.21.0",
+    "unpdf": "^1.8.1",
     "vite": "^8.3.0",
-    "zod": "^3.24.2",
-    "docx": "^9.5.1",
-    "mammoth": "^1.10.0",
-    "multer": "^2.0.2",
-    "pdfkit": "^0.17.2",
-    "xlsx": "^0.18.5"
+    "zod": "^3.24.2"
   },
   "devDependencies": {
     "@types/express": "^4.17.21",
     "@types/node": "^22.14.0",
+    "@types/pdfkit": "^0.17.6",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "autoprefixer": "^10.4.21",
     "playwright": "^1.63.0",
     "tailwindcss": "^4.3.3",
-    "typescript": "^5.8.2",
-    "@types/multer": "^2.0.0",
-    "@types/pdfkit": "^0.13.9"
+    "typescript": "^5.8.2"
   },
   "engines": {
     "node": ">=20"

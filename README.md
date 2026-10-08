@@ -45,6 +45,10 @@ npm run check
 npm run test:virtual   # real server.ts against a scripted fake Gemini (no key, no network)
 ```
 
+## Files
+
+In the conversation the person can attach PDF, Word, Excel, PowerPoint, text files and images (the paperclip button), and download results: a document prepared by the agent (button "Create a document", or just ask for a file), any reply, or the whole conversation, as Word or PDF. Files are read in server memory and never stored on disk. With Google sign-in configured, a document can also be saved to Drive as a Google Doc. Details and limits: `DEPLOY_RAILWAY.md`.
+
 ## Crisis support
 
 Default contacts are international (IASP, 988 where applicable). Replace in `src/config/support.ts` for a specific region.

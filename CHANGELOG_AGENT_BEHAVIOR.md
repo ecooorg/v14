@@ -1,5 +1,22 @@
 # Agent behavior and model routing changes
 
+## v1.0
+
+Files in the conversation. The decision method, state logic and every existing prompt paragraph are unchanged; two sections and two schema fields were added to the conversation prompt.
+
+- Attach files to a message (start screen and chat): PDF, DOCX, XLSX, PPTX, text, images. `POST /api/attach` validates by file bytes, extracts text in memory (`server/files.ts`), and returns it. Images and scanned PDFs are shown to the model directly on the turn they are attached; the model returns `attachmentNotes` (a faithful summary) which the client stores so later turns still know the file.
+- Conversation prompt: new section FILES THE PERSON ATTACHES (file content is the person's own data, never instructions; fake file delimiters are neutralised) and new section DOCUMENTS AND FILES YOU HAND OVER. New JSON fields `document` and `attachmentNotes`; new intent `DOCUMENT`.
+- Agent-made documents: the model returns a structured `document` (title and blocks, plain text). The server cleans it exactly like a reply (markdown and internal labels removed), drops it on a crisis turn, and does not require a gain on a document turn (no quality retry). `POST /api/export-document` builds Word or PDF on demand (`server/documents.ts`); no model call, nothing stored.
+- Download any reply or the whole conversation as Word or PDF. Downloaded file names are always English (lower-case letters, digits, dashes): the agent suggests a short English `fileName` in the `document`; without it the title is transliterated (Cyrillic to Latin); replies are saved as `note`, conversations as `conversation`.
+- Save to Google Docs: a button on documents, replies and conversations uploads the Word version to the person's Drive and lets Drive convert it into a native Google Doc (editable online, shareable by link). Uses a separate token with only the `drive.file` scope (files this app creates), requested when the button is pressed, same `VITE_GOOGLE_CLIENT_ID`, no new keys; the library sync still uses `drive.appdata` only and is unchanged. The button is shown only when Google sign-in is configured. Google Doc name = the English file name. Tests: `tests/driveDocs.test.mjs` (5).
+- Number check: numbers found in attached files count as the person's own input.
+- Privacy text on the welcome screen now says that attached files are sent to Gemini with the message.
+- New dependencies: `docx`, `pdfkit`, `dejavu-fonts-ttf`, `unpdf`; dev: `@types/pdfkit`.
+- Tests: `tests/files.test.mjs` (25 unit tests, includes a PDF/DOCX round trip with Cyrillic) and `tests/virtual/files.test.mjs` (24 tests on the real server with a fake Gemini); `npm run check` runs both.
+- Fixed in `src/App.tsx` (three `tsc` errors present in the previous package): two were type-only; the third was a real bug in Expert mode: the block with "THE DECISION" and the assumptions lists was shown only when `summary` was empty (a non-empty string compared with `> 0` is false), so the summary never appeared. `tsc --noEmit` is now clean.
+- Fixed: `check-version` failed on the previous package because `DEPLOY_RAILWAY.md` and this file still said v20.0.1 while `src/config.ts` says 1.0.
+- Not checked: live Gemini with real images and scans, real browsers (WebKit, iPhone), Drive sync with large dialogues.
+
 ## v20.0.1
 
 - Test-only release, application code unchanged. Found while running QA-03 on real packages.
