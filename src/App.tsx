@@ -19,6 +19,8 @@ import { FEATURES, APP_VERSION } from './config';
 import { exportFileName } from './utils/exportName';
 import { useDrive } from './hooks/useDrive';
 import { HistoryPanel } from './components/HistoryPanel';
+import { AttachControl, ConversationExport, MessageDownload, MessageExtras } from './components/ConversationFiles';
+import { Attachment, applyAttachmentNotes, attachmentOnlyText, collectAttachments, fitRequest, historyForRequest } from './utils/attachments';
 import { en } from './i18n/en';
 import { triage, TRIAGE_OUTCOME_TEXT, TRIAGE_OUTCOME_LABEL } from './core/triage';
 import { evpi, evpiRange, evpiVerdict, validateEvpiInput } from './core/evpi';
@@ -28,32 +30,19 @@ import { buildIcs } from './core/icsBuilder';
 import { detectUiLanguage, installUiLanguage } from './i18n/ui';
 
 // --- API helper ---
-async function api(path: string, body: unknown, files: File[] = []) {
-  const headers: Record<string, string> = {};
+async function api(path: string, body: unknown) {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   try {
     const key = localStorage.getItem('bifurcation_gemini_key_v15') || '';
     const model = localStorage.getItem('bifurcation_gemini_model_v15') || '';
     if (key) headers['x-byok-key'] = key;
     if (model) headers['x-model-preference'] = model;
   } catch {}
-
-  let requestBody: BodyInit;
-  if (files.length) {
-    const form = new FormData();
-    const objectBody = body && typeof body === 'object' ? body as Record<string, unknown> : {};
-    for (const [key, value] of Object.entries(objectBody)) {
-      if (value !== undefined) form.append(key, typeof value === 'string' ? value : JSON.stringify(value));
-    }
-    for (const file of files.slice(0, 5)) form.append('files', file, file.name);
-    requestBody = form;
-  } else {
-    headers['Content-Type'] = 'application/json';
-    requestBody = JSON.stringify(body);
-  }
-
-  const r = await fetch(path, { method: 'POST', headers, body: requestBody });
+  const r = await fetch(path, { method: 'POST', headers, body: JSON.stringify(body) });
   const j = await r.json().catch(() => ({}));
   if (!r.ok || !j.success) {
+    // Preserve the real provider/server reason. AI failures are handled by runApi
+    // as a neutral status message, never by the red global error banner.
     const detail = j?.details?.upstreamMessage ? ` — ${j.details.upstreamMessage}` : '';
     const err = new Error(`${j.error || `API error ${r.status}`}${detail}`);
     (err as any).code = j.code;
@@ -61,76 +50,6 @@ async function api(path: string, body: unknown, files: File[] = []) {
     throw err;
   }
   return j;
-}
-
-async function uploadAttachment(file: File) {
-  const form = new FormData();
-  form.append('file', file);
-  const headers: Record<string, string> = {};
-  try {
-    const key = localStorage.getItem('bifurcation_gemini_key_v15') || '';
-    const model = localStorage.getItem('bifurcation_gemini_model_v15') || '';
-    if (key) headers['x-byok-key'] = key;
-    if (model) headers['x-model-preference'] = model;
-  } catch {}
-  const r = await fetch('/api/attach', { method: 'POST', headers, body: form });
-  const j = await r.json().catch(() => ({}));
-  if (!r.ok || !j.success) throw new Error(j.error || `Attachment error ${r.status}`);
-  return j.data;
-}
-
-async function downloadDocument(document: unknown, format: 'docx' | 'pdf') {
-  const r = await fetch('/api/document', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ format, document }),
-  });
-  if (!r.ok) {
-    const j = await r.json().catch(() => ({}));
-    throw new Error(j.error || `Document export failed (${r.status})`);
-  }
-  const blob = await r.blob();
-  const disposition = r.headers.get('content-disposition') || '';
-  const filename = disposition.match(/filename="([^"]+)"/)?.[1] || `document.${format}`;
-  downloadBlob(blob, filename);
-}
-
-function buildDecisionDocument(d: Decision): {
-  title: string;
-  paragraphs: string[];
-  bullets: string[];
-  sections: { title: string; paragraphs: string[]; bullets: string[] }[];
-  tables: { headers: string[]; rows: string[][] }[];
-} {
-  const history = Array.isArray(d.modelSuggestions?.conversation) ? d.modelSuggestions.conversation : [];
-  const sections: { title: string; paragraphs: string[]; bullets: string[] }[] = [];
-  sections.push({
-    title: 'Situation',
-    paragraphs: [String(d.brief?.decision || '')].filter(Boolean),
-    bullets: [
-      ...(d.brief?.facts || []),
-      ...(d.brief?.unknowns || []).map((x: string) => `Unknown: ${x}`),
-      ...(d.brief?.assumptions || []).map((x: string) => `Assumption: ${x}`),
-    ],
-  });
-  if (d.options?.length) {
-    sections.push({
-      title: 'Options',
-      paragraphs: [],
-      bullets: d.options.map((o) => `${o.title}${o.description ? ` — ${o.description}` : ''}`),
-    });
-  }
-  if (history.length) {
-    sections.push({
-      title: 'Conversation',
-      paragraphs: history.map((m: any) => `${m.role === 'user' ? 'User' : 'Assistant'}: ${String(m.content || '')}`),
-      bullets: [],
-    });
-  }
-  if (d.synthesis?.paragraphs?.length) {
-    sections.push({ title: 'Plan', paragraphs: [...d.synthesis.paragraphs], bullets: [] });
-  }
-  return { title: d.title || 'Decision note', paragraphs: [], bullets: [], sections, tables: [] };
 }
 
 const stageIndex = (s: Step) => STAGES.findIndex((x) => x.id === s);
@@ -236,7 +155,7 @@ export default function App() {
 
   // Detect the language from existing conversation content after the active decision is known.
   useEffect(() => {
-    const existing = active?.modelSuggestions?.conversation?.find((m: any) => m?.role === 'user')?.content || active?.brief?.decision || '';
+    const existing = (active?.modelSuggestions as any)?.conversation?.find((m: any) => m?.role === 'user')?.content || active?.brief?.decision || '';
     setUiLanguage(existing ? detectUiLanguage(String(existing)) : 'en');
   }, [active?.id]);
 
@@ -283,12 +202,12 @@ export default function App() {
     if (activeId === id) setActiveId('');
   };
 
-  const runApi = async (path: string, body: unknown, onOk: (data: any, meta: any) => void, files: File[] = []) => {
+  const runApi = async (path: string, body: unknown, onOk: (data: any, meta: any) => void) => {
     setBusy(true);
     setError('');
     setMessage('');
     try {
-      const j = await api(path, body, files);
+      const j = await api(path, body);
       onOk(j.data, j.meta);
     } catch (e: any) {
       // Provider/API failures are operational states, not application crashes.
@@ -330,7 +249,7 @@ export default function App() {
             <p>{en.privacyBody}</p>
             <p style={{ fontSize: 12, color: '#7f93aa' }}>
               Fields sent to Gemini API: Brief text, confirmed neutralization, answers to
-              unknowns, options, hypotheses, experiment cards (no passwords or documents).
+              unknowns, options, hypotheses, experiment cards (no passwords). Files you attach are read on the server and sent to Gemini only together with the message you attach them to; the server does not store them.
             </p>
             <button
               className="primary"
@@ -475,9 +394,6 @@ export default function App() {
         onExport={() =>
           downloadBlob(exportDecisionJson(d), `${d.title.slice(0, 40) || d.id}.json`)
         }
-        onExportDocument={(format) => {
-          void downloadDocument(buildDecisionDocument(d), format).catch((e) => setError(e.message));
-        }}
         onExportAll={() =>
           downloadBlob(exportAllJson(decisions), exportFileName())
         }
@@ -564,7 +480,7 @@ export default function App() {
         </aside>}
 
         <main className="content">
-          {expertMode && d.modelSuggestions?.conversation?.length > 0 && (
+          {expertMode && ((d.modelSuggestions as any)?.conversation?.length ?? 0) > 0 && (
             <SharedConversationContext d={d} />
           )}
 
@@ -664,7 +580,6 @@ function MethodGuide({ step, stageMeta, busy }: { step: Step; stageMeta: typeof 
 function Header(props: {
   onNew: () => void;
   onExport?: () => void;
-  onExportDocument?: (format: 'docx' | 'pdf') => void;
   onExportAll: () => void;
   onImport: (f: File) => void;
   onBrief?: () => void;
@@ -707,11 +622,7 @@ function Header(props: {
         {/* Secondary actions: inline on wide screens, in the More menu on narrow ones */}
         <div className={`hdr-secondary${moreOpen ? ' open' : ''}`}>
           {props.expertMode && props.onBrief && <button className="ghost" onClick={props.onBrief}>Brief</button>}
-          {props.expertMode && props.onExport && <button className="ghost" onClick={props.onExport}><Download size={14} /> Export JSON</button>}
-          {props.expertMode && props.onExportDocument && <>
-            <button className="ghost" onClick={() => props.onExportDocument?.('docx')}><Download size={14} /> DOCX</button>
-            <button className="ghost" onClick={() => props.onExportDocument?.('pdf')}><Download size={14} /> PDF</button>
-          </>}
+          {props.expertMode && props.onExport && <button className="ghost" onClick={props.onExport}><Download size={14} /> Export</button>}
           {props.expertMode && <button className="ghost" onClick={props.onExportAll}><Download size={14} /> Export all</button>}
           {props.expertMode && <label className="ghost" style={{ cursor: 'pointer' }}>
             <Upload size={14} /> Import
@@ -882,6 +793,8 @@ const INTENT_CHIPS: { id: string; label: string; hint: string }[] = [
 
 const NOTE_REQUEST =
   'Please write this up as a short note for me: what matters to me, what I do not know yet, and what I will find out this week.';
+const DOCUMENT_REQUEST =
+  'Please prepare a document I can download: a clear summary of this conversation with what matters to me, what is not known yet and the next step.';
 
 function SafetyBox() {
   return (
@@ -911,16 +824,17 @@ function BriefScreen({
 }) {
   const b = d.brief;
   const setB = (patch: Partial<typeof b>) => update({ brief: { ...b, ...patch } });
-  const canContinue = b.decision.trim().length >= 3;
+  const [files, setFiles] = useState<Attachment[]>([]);
+  const canContinue = b.decision.trim().length >= 3 || files.length > 0;
   const distress = findDistressInTexts([b.decision]);
   const [intent, setIntent] = useState<string>('THINK_ALOUD');
   const chip = INTENT_CHIPS.find((c) => c.id === intent) || INTENT_CHIPS[0];
 
   const submit = () => {
     if (!canContinue || busy) return;
-    const text = b.decision.trim();
+    const text = b.decision.trim() || attachmentOnlyText(files);
     window.dispatchEvent(new CustomEvent('be:user-language', { detail: { text } }));
-    const userMessage = { role: 'user', content: text, at: Date.now() };
+    const userMessage: any = { role: 'user', content: text, at: Date.now(), ...(files.length ? { attachments: files } : {}) };
     update({
       title: text.slice(0, 80) || d.title,
       brief: { ...b, decision: text },
@@ -928,12 +842,13 @@ function BriefScreen({
       step: 'UNDERSTAND',
       interactionState: 'UNDERSTANDING',
     });
-    runApi('/api/conversation', { brief: { ...b, decision: text }, history: [userMessage], intent }, (data, meta) => {
-      const assistant = { role: 'assistant', content: data.reply, at: Date.now() };
+    runApi('/api/conversation', fitRequest({ brief: { ...b, decision: text }, history: historyForRequest([userMessage]), attachments: collectAttachments([userMessage]), intent }), (data, meta) => {
+      const assistant: any = { role: 'assistant', content: data.reply, at: Date.now(), ...(data.document ? { document: data.document } : {}) };
+      setFiles([]);
       update({
         modelSuggestions: {
           ...d.modelSuggestions,
-          conversation: [userMessage, assistant],
+          conversation: [...applyAttachmentNotes([userMessage], data.attachmentNotes), assistant],
           conversationMeta: meta,
           conversationState: data.state,
           conversationNextStep: data.triage === 'CRISIS' ? '' : data.nextStep || '',
@@ -974,6 +889,7 @@ function BriefScreen({
           }}
         />
         {distress && <SafetyBox />}
+        <AttachControl value={files} onChange={setFiles} disabled={busy} />
         <div className="conversation-entry-actions">
           <button className="primary" disabled={!canContinue || busy} onClick={submit}>{busy ? 'Thinking…' : 'Send'} <ArrowRight size={16} /></button>
           <span className="conversation-hint">Ctrl/Cmd + Enter</span>
@@ -1023,6 +939,7 @@ function SharedConversationContext({ d }: { d: Decision }) {
             {history.map((m: any, i: number) => (
               <div key={i} className={`conversation-message ${m.role === 'user' ? 'user' : 'assistant'}`}>
                 <div className="conversation-message-text" translate="no" dir="auto">{m.content}</div>
+                <MessageExtras message={m} />
               </div>
             ))}
           </div>
@@ -1041,14 +958,11 @@ function ConversationScreen({
 }: {
   d: Decision;
   update: (p: Partial<Decision> | ((x: Decision) => Decision)) => void;
-  runApi: (path: string, body: unknown, onOk: (data: any, meta: any) => void, files?: File[]) => void;
+  runApi: (path: string, body: unknown, onOk: (data: any, meta: any) => void) => void;
   busy: boolean;
 }) {
   const [input, setInput] = useState('');
-  const [attachments, setAttachments] = useState<{ file: File; meta: any }[]>([]);
-  const [attachmentBusy, setAttachmentBusy] = useState(false);
-  const [attachmentError, setAttachmentError] = useState('');
-  const [generatedDocument, setGeneratedDocument] = useState<any>(null);
+  const [files, setFiles] = useState<Attachment[]>([]);
   const ms: any = d.modelSuggestions || {};
   const history: any[] = Array.isArray(ms.conversation) ? ms.conversation : [];
   const waitingForAssistant = history.length > 0 && history[history.length - 1]?.role === 'user';
@@ -1061,24 +975,23 @@ function ConversationScreen({
     !!findDistressInTexts([input, ...history.filter((m: any) => m.role === 'user').slice(-3).map((m: any) => m.content)]);
 
   const send = (override?: string, intent?: string) => {
-    const text = (override ?? input).trim();
-    if ((!text && !attachments.length) || busy) return;
+    const text = (override ?? input).trim() || (files.length ? attachmentOnlyText(files) : '');
+    if (!text || busy) return;
     window.dispatchEvent(new CustomEvent('be:user-language', { detail: { text } }));
     const lastAt: number | undefined = history.length ? history[history.length - 1]?.at : undefined;
     const days = lastAt ? Math.floor((Date.now() - lastAt) / 86400000) : 0;
-    const nextHistory = [...history, { role: 'user', content: text, at: Date.now() }];
+    const nextHistory = [...history, { role: 'user', content: text, at: Date.now(), ...(files.length ? { attachments: files } : {}) }];
     setInput('');
+    setFiles([]);
     update({ modelSuggestions: { ...d.modelSuggestions, conversation: nextHistory }, interactionState: 'UNDERSTANDING' });
     runApi(
       '/api/conversation',
-      { brief: d.brief, history: nextHistory, state: ms.conversationState, intent, returningAfterDays: days >= 1 ? days : undefined },
+      fitRequest({ brief: d.brief, history: historyForRequest(nextHistory), attachments: collectAttachments(nextHistory), state: ms.conversationState, intent, returningAfterDays: days >= 1 ? days : undefined }),
       (data, meta) => {
-        if (data?.document?.title) setGeneratedDocument(data.document);
-        setAttachments([]);
         update({
           modelSuggestions: {
             ...d.modelSuggestions,
-            conversation: [...nextHistory, { role: 'assistant', content: data.reply, at: Date.now() }],
+            conversation: [...applyAttachmentNotes(nextHistory, data.attachmentNotes), { role: 'assistant', content: data.reply, at: Date.now(), ...(data.document ? { document: data.document } : {}) }],
             conversationMeta: meta,
             conversationState: data.state ?? ms.conversationState,
             conversationNextStep: data.triage === 'CRISIS' ? '' : data.nextStep || nextStep,
@@ -1087,7 +1000,6 @@ function ConversationScreen({
           interactionState: 'PREVIEW_READY',
         });
       },
-      attachments.map((a) => a.file),
     );
   };
 
@@ -1097,6 +1009,8 @@ function ConversationScreen({
         {history.map((m: any, i: number) => (
           <div key={i} className={`conversation-message ${m.role === 'user' ? 'user' : 'assistant'}`}>
             <div className="conversation-message-text" translate="no" dir="auto">{m.content}</div>
+            <MessageExtras message={m} />
+            {m.role === 'assistant' && !m.document && i === history.map((x: any) => x.role).lastIndexOf('assistant') && String(m.content || '').length >= 120 && !String(m.content).includes('\n---\n') && <MessageDownload title={d.title} text={String(m.content)} />}
           </div>
         ))}
         {busy && <div className="conversation-message assistant"><div className="conversation-message-text conversation-thinking">Looking at your specific situation…</div></div>}
@@ -1110,6 +1024,7 @@ function ConversationScreen({
       )}
       {history.some((m: any) => m.role === 'assistant') && !waitingForAssistant && !busy && (
         <>
+          <AttachControl value={files} onChange={setFiles} disabled={busy} />
           <div className="conversation-composer">
             <textarea
               value={input}
@@ -1119,56 +1034,13 @@ function ConversationScreen({
               placeholder={askedQuestion ? 'Your answer. “I don’t know” is a fine answer too.' : 'Anything to add, or something you want to look at next?'}
               rows={3}
             />
-            <button className="primary" disabled={(!input.trim() && !attachments.length) || busy} onClick={() => send()}>Send <ArrowRight size={16} /></button>
+            <button className="primary" disabled={!input.trim() && !files.length} onClick={() => send()}>Send <ArrowRight size={16} /></button>
           </div>
-          <div className="conversation-tools" style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-            <label className="ghost" style={{ cursor: attachmentBusy ? 'wait' : 'pointer' }}>
-              <Upload size={14} /> {attachmentBusy ? 'Uploading…' : 'Attach file'}
-              <input
-                type="file"
-                hidden
-                accept=".pdf,.png,.jpg,.jpeg,.webp,.gif,.docx,.xlsx,.txt,.csv,application/pdf,image/*"
-                disabled={attachmentBusy || busy}
-                onChange={async (e) => {
-                  const f = e.target.files?.[0];
-                  e.currentTarget.value = '';
-                  if (!f) return;
-                  setAttachmentError('');
-                  setAttachmentBusy(true);
-                  try {
-                    const a = await uploadAttachment(f);
-                    setAttachments((prev) => [...prev, { file: f, meta: a }].slice(0, 5));
-                  } catch (err: any) {
-                    setAttachmentError(err.message || 'Could not attach file');
-                  } finally {
-                    setAttachmentBusy(false);
-                  }
-                }}
-              />
-            </label>
-            {attachments.map((a, i) => (
-              <span key={`${a.meta.name}-${i}`} className="ghost" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                {a.meta.name}
-                <button className="ghost" style={{ padding: 0 }} onClick={() => setAttachments((prev) => prev.filter((_, j) => j !== i))} aria-label={`Remove ${a.meta.name}`}>×</button>
-              </span>
-            ))}
-            {attachmentError && <span className="alert error" style={{ margin: 0 }}>{attachmentError}</span>}
+          <div className="conversation-tools">
+            <ConversationExport title={d.title} history={history} />
+            <button className="ghost" onClick={() => send(input.trim() ? input : DOCUMENT_REQUEST, 'DOCUMENT')}>Create a document</button>
+            {userTurns >= 2 && <button className="ghost" onClick={() => send(NOTE_REQUEST, 'NOTE')}>Write this up as a short note</button>}
           </div>
-          {generatedDocument?.title && (
-            <div className="conversation-note assistant-surface">
-              <span className="conversation-note-label">Generated document: </span>
-              <span>{generatedDocument.title}</span>
-              <span style={{ display: 'inline-flex', gap: 6, marginLeft: 8 }}>
-                <button className="ghost" onClick={() => void downloadDocument(generatedDocument, 'docx').catch((e) => setAttachmentError(e.message))}>DOCX</button>
-                <button className="ghost" onClick={() => void downloadDocument(generatedDocument, 'pdf').catch((e) => setAttachmentError(e.message))}>PDF</button>
-              </span>
-            </div>
-          )}
-          {userTurns >= 2 && (
-            <div className="conversation-tools">
-              <button className="ghost" onClick={() => send(NOTE_REQUEST, 'NOTE')}>Write this up as a short note</button>
-            </div>
-          )}
         </>
       )}
     </div>
@@ -1378,7 +1250,7 @@ function UnderstandScreen({
 
       {d.radar && (
         <>
-          {(summary || assumptions.length || examples.length || interpretations.length || values.length || externalChecks.length) > 0 && (
+          {(Boolean(summary) || assumptions.length > 0 || examples.length > 0 || interpretations.length > 0 || values.length > 0 || externalChecks.length > 0) && (
             <AssistantMessage>
               {summary && (
                 <div className="question">

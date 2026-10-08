@@ -507,3 +507,31 @@ button:disabled{
 
 /* v20.11 — saved answers stay visible: user's own words are white, the question stays AI blue. */
 .answered-card .answered-reply{color:var(--be-user) !important;font-size:16px;line-height:1.6;padding:8px 12px;margin-top:4px;border-left:3px solid var(--be-interface-border);background:#0b1b2d;border-radius:0 8px 8px 0;white-space:pre-wrap;overflow-wrap:anywhere}
+
+/* ---- Files in the conversation: attachments, document cards, downloads ---- */
+.attach-control{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:0 0 10px}
+.attach-button{font-size:13px}
+.attach-chips{display:flex;flex-wrap:wrap;gap:6px}
+.attach-chip{display:inline-flex;align-items:center;gap:6px;max-width:100%;background:#0d1c2b;border:1px solid #2a4058;border-radius:999px;padding:4px 6px 4px 10px;font-size:12px;color:#b9cadb}
+.attach-chip svg{flex:0 0 auto;color:#6194c4}
+.attach-chip-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:220px}
+.attach-chip small{color:#6f8499;font-size:11px;white-space:nowrap}
+.attach-chip-x{display:inline-grid;place-items:center;background:none;border:0;color:#7f93aa;padding:0;border-radius:50%;min-width:44px;min-height:44px;margin:-15px -8px -15px -10px}
+.attach-chip-x:hover{color:#ffb0b5;background:#1b2b3d}
+.attach-error{flex-basis:100%;font-size:12px;color:#ffb0b5}
+.conversation-message .attach-chips{margin-top:8px}
+.doc-card{margin-top:10px;border:1px solid #2a4058;background:#0b1928;border-radius:12px;padding:12px 14px;max-width:520px}
+.doc-card-title{display:flex;align-items:center;gap:8px;font-size:14px;font-weight:700;color:#dcecff;margin-bottom:10px}
+.doc-card-title svg{color:#6ea4d8;flex:0 0 auto}
+.doc-card-actions{display:flex;flex-wrap:wrap;gap:8px}
+.doc-card-actions .ghost{font-size:13px}
+.message-download{display:flex;flex-wrap:wrap;gap:8px;margin-top:2px}
+.link-button{background:none;border:0;padding:0 6px;font-size:13px;color:#6f93b8;text-decoration:underline;text-underline-offset:3px;min-height:44px;min-width:44px;display:inline-flex;align-items:center}
+.link-button:hover{color:#b9d4f2}
+.link-button:disabled{opacity:.6;cursor:default}
+.conversation-tools{gap:8px;flex-wrap:wrap}
+.conversation-tools .ghost{font-size:13px}
+@media(max-width:700px){.conversation-tools{justify-content:flex-start}.attach-chip-name{max-width:150px}}
+
+.drive-saved{flex-basis:100%;font-size:12px;color:#8fd1a8}
+.drive-saved a{color:#8fc3f0;text-underline-offset:3px;margin-left:4px}
