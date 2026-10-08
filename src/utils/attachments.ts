@@ -47,7 +47,7 @@ export async function uploadAttachment(file: File, language: ErrorLanguage = 'en
       body: file,
     });
   } catch {
-    throw new Error(language === 'ru' ? 'Не удалось загрузить файл. Проверьте соединение и повторите попытку.' : 'The upload failed. Check the connection and try again.');
+    const e = new Error(localizedException({ code: 'ATTACH_FAILED' }, language, language === 'ru' ? 'Не удалось загрузить файл.' : 'The upload failed.')); (e as any).code = 'ATTACH_FAILED'; throw e;
   }
   const j = await r.json().catch(() => ({}));
   if (!r.ok || !j.success) throw errorFromResponse(j, language, language === 'ru' ? 'Не удалось загрузить файл.' : `The upload failed (${r.status}).`);
@@ -191,7 +191,7 @@ export async function buildDocumentFile(doc: DocumentSpec, format: 'docx' | 'pdf
       body: JSON.stringify(bulk ? { format, document: doc, bulk: true } : { format, document: doc }),
     });
   } catch {
-    throw new Error(language === 'ru' ? 'Не удалось сохранить файл. Проверьте соединение и повторите попытку.' : 'The download failed. Check the connection and try again.');
+    const e = new Error(localizedException({ code: 'EXPORT_FAILED' }, language, language === 'ru' ? 'Не удалось сохранить файл.' : 'The download failed.')); (e as any).code = 'EXPORT_FAILED'; throw e;
   }
   if (!r.ok) {
     const j = await r.json().catch(() => ({}));
