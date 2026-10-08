@@ -1,5 +1,17 @@
 # Agent behavior and model routing changes
 
+## v1.4.1
+
+Stage 1 of the unified v1.5 plan (critical fixes and quick UX). Decision method, prompts and expert stages are unchanged.
+
+- **downloadBlob**: no longer revokes the object URL immediately after `click()`. The link is kept for 10 s (same pattern as document downloads), so Safari keeps the file name for JSON and ICS exports.
+- **Retry after failure**: when the last history item is a user message and there is no assistant reply (network / model error), a «Retry» button appears under that message. The pending text and attachments are kept until a successful response; the person does not have to retype or re-attach.
+- **Privacy note** next to «Attach file»: «File will be sent to Gemini».
+- **Copy** button on assistant replies (next to Save as Word / PDF).
+- **Drag-and-drop** files onto the conversation area and **paste** (Ctrl/Cmd+V) of images or files from the clipboard into the composer (start screen and chat). Same limits as the file picker (5 files, 10 MB).
+- Russian UI strings for the new labels.
+- Owner should re-run `npm run check` and the stage2 virtual suite with a real Gemini key; previously reported sandbox failures are environment-related, not introduced by this patch.
+
 ## v1.0
 
 Files in the conversation. The decision method, state logic and every existing prompt paragraph are unchanged; two sections and two schema fields were added to the conversation prompt.
