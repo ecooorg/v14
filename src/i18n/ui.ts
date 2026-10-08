@@ -18,6 +18,11 @@ Object.assign(RU, {
   'File will be sent to Gemini': 'Файл будет отправлен в Gemini',
   'Copy': 'Копировать',
   'Copied': 'Скопировано',
+  // B2-B4 (v1.4.6)
+  'Export all ▸': 'Экспортировать всё ▸', 'Import ▸': 'Импортировать ▸', 'Backup (.json)': 'Резервная копия (.json)', 'Readable text (.md)': 'Читаемый текст (.md)',
+  'Word': 'Word', 'Google Docs': 'Google Docs', 'From backup (.json)': 'Из резервной копии (.json)', 'From Google Drive': 'Из Google Диска',
+  'From a file as a new dialogue': 'Из файла как новый диалог', 'Nothing to export.': 'Нечего экспортировать.', 'Saving to Google Docs…': 'Сохраняю в Google Docs…',
+  'Preparing…': 'Готовлю…', 'Saved as Word.': 'Сохранено как Word.', 'Saved as PDF.': 'Сохранено как PDF.',
   'Drop files to attach': 'Перетащите файлы сюда',
   'You can attach up to 5 files to one message.': 'К одному сообщению можно прикрепить не больше 5 файлов.',
   'The file could not be attached.': 'Не удалось прикрепить файл.',
@@ -45,6 +50,8 @@ Object.assign(RU, {
   'Requesting summary from the agent…': 'Запрашиваю итог у агента…',
   'Calendar downloaded.': 'Календарь скачан.',
   'Google sign-in is not configured.': 'Вход в Google не настроен.',
+  'Edit…': 'Изменить…', 'Editing…': 'Изменяю…', 'Shorter': 'Короче', 'Add table': 'Добавить таблицу', 'Remove section': 'Убрать раздел', 'Choose heading': 'Выберите заголовок', 'Remove': 'Убрать', 'New document version is ready.': 'Новая версия документа готова.', 'I updated the document as requested.': 'Обновил документ по вашему запросу.',
+
   // Stage 3 (v1.4.3)
   'Program files': 'Файлы программы',
   'Close': 'Закрыть',
@@ -64,6 +71,8 @@ function translateText(value: string, language: UiLanguage): string {
   if (language !== 'ru') return value;
   if (RU[value] !== undefined) return RU[value];
   let m = value.match(/^Decision method · cycle (\d+)$/); if (m) return `Метод принятия решения · цикл ${m[1]}`;
+  m = value.match(/^Added (\d+), updated (\d+), skipped (\d+)\.$/); if (m) return `Добавлено ${m[1]}, обновлено ${m[2]}, пропущено ${m[3]}.`;
+  m = value.match(/^Saved to Google Drive\. (https?:\S+)$/); if (m) return `Сохранено на Google Диск. ${m[1]}`;
   m = value.match(/^Imported: (\d+)$/); if (m) return `Импортировано: ${m[1]}`;
   return value;
 }
