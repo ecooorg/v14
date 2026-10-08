@@ -19,8 +19,15 @@ function check(r: Response, what: string) {
   throw new Error(`Could not ${what} Google Drive.`);
 }
 
+export const DRIVE_APPDATA_SCOPE = 'https://www.googleapis.com/auth/drive.appdata';
+/** Only files this app creates (or the person opens with it). Used to save documents as Google Docs. */
+export const DRIVE_FILE_SCOPE = 'https://www.googleapis.com/auth/drive.file';
+const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+
+export function isDriveConfigured(): boolean { return Boolean((import.meta as any).env?.VITE_GOOGLE_CLIENT_ID); }
+
 /** Must be called directly from a click handler (popup blockers). */
-export async function requestDriveToken(): Promise<DriveToken> {
+export async function requestDriveToken(scope: string = DRIVE_APPDATA_SCOPE): Promise<DriveToken> {
   const clientId = (import.meta as any).env?.VITE_GOOGLE_CLIENT_ID || '';
   if (!clientId) throw new Error('Google Drive is not configured (VITE_GOOGLE_CLIENT_ID is missing).');
   if (!(window as any).google) {
@@ -34,7 +41,7 @@ export async function requestDriveToken(): Promise<DriveToken> {
   return new Promise((resolve, reject) => {
     const client = (window as any).google.accounts.oauth2.initTokenClient({
       client_id: clientId,
-      scope: 'https://www.googleapis.com/auth/drive.appdata',
+      scope,
       callback: (r: any) => r?.access_token
         ? resolve({ token: r.access_token, expiresAt: Date.now() + (Number(r.expires_in) || 3600) * 1000 })
         : reject(new Error(r?.error || 'Google authorization was denied.')),
@@ -71,4 +78,17 @@ export async function driveWrite(token: string, body: string, id?: string): Prom
   check(r, 'save the library to');
   const j = await r.json();
   return { id: j.id || id!, modifiedTime: Date.parse(j.modifiedTime) || Date.now() };
+}
+
+/** Uploads a .docx and lets Drive convert it into a native Google Doc (editable online, shareable by link). */
+export async function driveUploadAsGoogleDoc(token: string, name: string, docx: Blob): Promise<{ id: string; webViewLink: string }> {
+  const metadata = { name, mimeType: 'application/vnd.google-apps.document' };
+  const form = new FormData();
+  form.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
+  form.append('file', new Blob([docx], { type: DOCX_MIME }));
+  const r = await fetch(`${API}/upload/drive/v3/files?uploadType=multipart&fields=id,webViewLink`, { method: 'POST', headers: auth(token), body: form });
+  check(r, 'save the document to');
+  const j = await r.json().catch(() => ({}));
+  if (!j.id) throw new Error('Google Drive did not confirm the save.');
+  return { id: j.id, webViewLink: j.webViewLink || `https://docs.google.com/document/d/${j.id}/edit` };
 }
