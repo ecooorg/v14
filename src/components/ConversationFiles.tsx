@@ -71,7 +71,7 @@ export function AttachControl({
       >
         <Paperclip size={15} />{uploading > 0 ? 'Reading…' : 'Attach file'}
       </button>
-      {showPrivacyNote && (
+      {showPrivacyNote && value.length > 0 && (
         <span className="attach-privacy-note" title="Files are sent to Google Gemini together with your message. The server does not keep them.">
           File will be sent to Gemini
         </span>
@@ -511,7 +511,7 @@ export function FilesPanel({
           )}
         </div>
       </div>
-      {!hideAdd && (
+      {!hideAdd && files.length > 0 && (
         <span className="attach-privacy-note" title="Files are sent to Google Gemini together with your message. The server does not keep them.">
           File will be sent to Gemini
         </span>
