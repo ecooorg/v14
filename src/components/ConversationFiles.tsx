@@ -7,6 +7,10 @@ import {
 import { detectUiLanguage } from '../i18n/ui';
 import { isDriveConfigured } from '../utils/driveClient';
 import { saveDocumentToGoogleDocs, type SavedDoc } from '../utils/driveExport';
+import {
+  listProgramFiles, deleteProgramFile, programFileToAttachment, archiveAttachment,
+  getProgramFilesQuota, type ProgramFile,
+} from '../utils/programFiles';
 
 /* ---------- Attach button + chips of files waiting to be sent ---------- */
 
@@ -267,6 +271,10 @@ export function FilesPanel({
   const [what, setWhat] = useState<SaveWhat>(expertMode ? 'full-review' : 'dialogue');
   const [status, setStatus] = useState('');
   const [busy, setBusy] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [pickerList, setPickerList] = useState<ProgramFile[]>([]);
+  const [pickerSelected, setPickerSelected] = useState<Record<string, boolean>>({});
+  const [quotaMsg, setQuotaMsg] = useState('');
   const input = useRef<HTMLInputElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
 
@@ -316,6 +324,7 @@ export function FilesPanel({
         next = [...next, a];
         onFilesChange(next);
         setStatus(`Added ${a.name}`);
+        void archiveAttachment(a); // Stage 3: text-only archive in IndexedDB
       } catch (e: any) {
         setStatus(e?.message || 'The file could not be attached.');
       }
@@ -355,6 +364,31 @@ export function FilesPanel({
     }
   };
 
+
+  const loadPicker = async () => {
+    try {
+      const rows = await listProgramFiles();
+      setPickerList(rows);
+      setPickerSelected({});
+      const q = await getProgramFilesQuota();
+      setQuotaMsg(q.message || '');
+    } catch {
+      setPickerList([]);
+      setQuotaMsg('Could not open program files.');
+    }
+  };
+
+  const applyPicker = () => {
+    const chosen = pickerList.filter((r) => pickerSelected[r.id]);
+    if (!chosen.length) { setPickerOpen(false); return; }
+    const room = MAX_FILES_PER_MESSAGE - files.length;
+    const take = chosen.slice(0, Math.max(0, room));
+    const next = [...files, ...take.map(programFileToAttachment)];
+    onFilesChange(next);
+    setStatus(take.length === 1 ? `Added ${take[0].name}` : `Added ${take.length} files`);
+    setPickerOpen(false);
+  };
+
   const openSave = () => {
     setAddOpen(false);
     setWhat(expertMode ? 'full-review' : 'dialogue');
@@ -380,7 +414,7 @@ export function FilesPanel({
               <button type="button" role="menuitem" className="files-menu-item" onClick={() => input.current?.click()}>
                 From device
               </button>
-              <button type="button" role="menuitem" className="files-menu-item" disabled title="Available in a later version">
+              <button type="button" role="menuitem" className="files-menu-item" onClick={() => { setAddOpen(false); setPickerOpen(true); void loadPicker(); }}>
                 From program files
               </button>
             </div>
@@ -432,6 +466,98 @@ export function FilesPanel({
       </span>
       <AttachmentChips items={files} onRemove={(i) => onFilesChange(files.filter((_, k) => k !== i))} />
       {status && <div className="files-panel-status" role="status">{status}</div>}
+      {quotaMsg && <div className="files-panel-status files-panel-warn" role="status">{quotaMsg}</div>}
+
+      {pickerOpen && (
+        <div className="pf-modal" role="dialog" aria-label="Program files">
+          <div className="pf-modal-card">
+            <div className="pf-modal-head">
+              <strong>Program files</strong>
+              <button type="button" className="ghost" onClick={() => setPickerOpen(false)} aria-label="Close">Close</button>
+            </div>
+            {quotaMsg && <div className="files-panel-warn">{quotaMsg}</div>}
+            {!pickerList.length && <p className="pf-empty">No files in the archive yet. Attach a file from the device — its text is kept here for reuse.</p>}
+            <ul className="pf-list">
+              {pickerList.map((row) => (
+                <li key={row.id} className="pf-row">
+                  <label className="pf-row-main">
+                    <input
+                      type="checkbox"
+                      checked={!!pickerSelected[row.id]}
+                      onChange={(e) => setPickerSelected((s) => ({ ...s, [row.id]: e.target.checked }))}
+                    />
+                    <span className="pf-name" translate="no">{row.name}</span>
+                    <small>{row.kind} · {new Date(row.addedAt).toLocaleDateString()}</small>
+                  </label>
+                  <button
+                    type="button"
+                    className="link-button"
+                    onClick={() => void (async () => {
+                      await deleteProgramFile(row.id);
+                      void loadPicker();
+                    })()}
+                  >Delete</button>
+                </li>
+              ))}
+            </ul>
+            <div className="pf-modal-actions">
+              <button type="button" className="ghost" onClick={() => setPickerOpen(false)}>Cancel</button>
+              <button type="button" className="primary" onClick={applyPicker} disabled={!Object.values(pickerSelected).some(Boolean)}>
+                Add to dialogue
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Standalone manager opened from More → Program files */
+export function ProgramFilesManager({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const [list, setList] = useState<ProgramFile[]>([]);
+  const [quotaMsg, setQuotaMsg] = useState('');
+  React.useEffect(() => {
+    if (!open) return;
+    void (async () => {
+      setList(await listProgramFiles());
+      const q = await getProgramFilesQuota();
+      setQuotaMsg(q.message || '');
+    })();
+  }, [open]);
+  if (!open) return null;
+  return (
+    <div className="pf-modal" role="dialog" aria-label="Program files">
+      <div className="pf-modal-card">
+        <div className="pf-modal-head">
+          <strong>Program files</strong>
+          <button type="button" className="ghost" onClick={onClose} aria-label="Close">Close</button>
+        </div>
+        <p className="pf-hint">Only text and descriptions are stored in this browser. Originals are not kept. Included in Export all (JSON backup).</p>
+        {quotaMsg && <div className="files-panel-warn">{quotaMsg}</div>}
+        {!list.length && <p className="pf-empty">Archive is empty.</p>}
+        <ul className="pf-list">
+          {list.map((row) => (
+            <li key={row.id} className="pf-row">
+              <div className="pf-row-main">
+                <span className="pf-name" translate="no">{row.name}</span>
+                <small>{row.kind} · {new Date(row.addedAt).toLocaleDateString()}{row.usedIn?.length ? ` · used in ${row.usedIn.length}` : ''}</small>
+              </div>
+              <button
+                type="button"
+                className="link-button"
+                onClick={() => void (async () => {
+                  await deleteProgramFile(row.id);
+                  setList(await listProgramFiles());
+                })()}
+              >Delete</button>
+            </li>
+          ))}
+        </ul>
+        <div className="pf-modal-actions">
+          <button type="button" className="primary" onClick={onClose}>Done</button>
+        </div>
+      </div>
     </div>
   );
 }
