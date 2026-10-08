@@ -47,7 +47,7 @@ npm run test:virtual   # real server.ts against a scripted fake Gemini (no key, 
 
 ## Files
 
-In the conversation the person can attach PDF, Word, Excel, PowerPoint, text files and images (the paperclip button), and download results: a document prepared by the agent (button "Create a document", or just ask for a file), any reply, or the whole conversation, as Word or PDF. Files are read in server memory and never stored on disk. With Google sign-in configured, a document can also be saved to Drive as a Google Doc. Details and limits: `DEPLOY_RAILWAY.md`.
+In the conversation the person can attach PDF, Word, Excel, PowerPoint, text files and images (the paperclip button), and download results: a document prepared by the agent, any reply, or the whole conversation, as Word or PDF. A document card also has quick edits: **Shorter**, **Add table**, and **Remove section**; each makes one model request and keeps the previous version in conversation history. Files are read in server memory and never stored on disk. With Google sign-in configured, a document can also be saved to Drive as a Google Doc. File errors use the interface language (English/Russian) with stable error codes. Expert requests limit attached file text to 20,000 characters total; chat requests allow up to 60,000. Details and limits: `DEPLOY_RAILWAY.md`.
 
 ## Crisis support
 

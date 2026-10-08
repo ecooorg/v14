@@ -38,6 +38,9 @@ The production server serves the generated `dist/` directory from `server.ts`.
 - Download: the model returns a structured `document`; `/api/export-document` builds `.docx` (library `docx`) or `.pdf` (library `pdfkit` with the bundled DejaVu Sans font from the npm package `dejavu-fonts-ttf`, which covers Latin, Cyrillic and Greek; CJK text will not render in PDF, DOCX is not affected). File names are always English ASCII (the agent's suggested name, else the transliterated title). The same endpoint saves any reply or the whole conversation. No model call is made for a download.
 - Limits: 30 uploads and 60 downloads per address per 10 minutes. Uploads do not use `RATE_LIMIT_PER_HOUR`; the message that carries them does.
 - Files are sent to Gemini together with the message they are attached to. Say so to people who use the deployment.
+- Expert steps (`UNDERSTAND` through `REVIEW`) accept the same decision files; their combined file-text block is limited to 20,000 characters by default, while the normal conversation limit is 60,000. Images and scanned PDFs are not re-sent as raw bytes to expert steps; their saved descriptions are used there.
+- Document cards support **Shorter**, **Add table**, and **Remove section**. Each action makes exactly one document-edit model request; the prior document remains in conversation history and the new version can be saved normally.
+- File/export/upload errors have stable codes (`TOO_LARGE`, `UNSUPPORTED_TYPE`, `UNREADABLE`, `EMPTY`, `EMPTY_TEXT`, `RATE_LIMIT`, `ATTACH_FAILED`, `EXPORT_FAILED`, `BAD_FORMAT`, `EMPTY_DOCUMENT`, `BAD_UPLOAD`, `TOO_LONG`, `PRECONDITION`) and are rendered in the selected English/Russian interface language.
 
 ## Save to Google Docs
 
