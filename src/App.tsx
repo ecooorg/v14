@@ -1645,7 +1645,7 @@ function UnderstandScreen({
                     {u === current && (
                       <div className="question" style={{ marginTop: 10 }}>
                         {u.howToFindOut && <p dir="auto"><b className="ui-label">How to find out:</b> {u.howToFindOut}</p>}
-                        <AutoTextarea value={answer} onChange={(e) => setAnswer(e.target.value)} placeholder="Your answer, or leave it blank if you do not know" rows={4} style={{ width: '100%' }} />
+                        <AutoTextarea className="open-question-input" value={answer} onChange={(e) => setAnswer(e.target.value)} placeholder="Your answer, or leave it blank if you do not know" rows={4} style={{ width: '100%' }} />
                         <div className="actions" style={{ marginTop: 10 }}>
                           <button className="primary" disabled={!answer.trim() || busy} onClick={() => resolveCurrent('ANSWER')}>Answer <ArrowRight size={16} /></button>
                           <button className="ghost" disabled={busy} onClick={() => resolveCurrent('UNKNOWN')}>I don't know</button>
