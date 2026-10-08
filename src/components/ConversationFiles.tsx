@@ -130,34 +130,63 @@ export function DriveSaveButton({ getDoc }: { getDoc: () => DocumentSpec }) {
   );
 }
 
-/** A document the agent prepared: a card with Word and PDF downloads. */
+/** A document the agent prepared: title + one Save menu (same targets as the Files panel). */
 export function DocumentCard({ doc }: { doc: DocumentSpec }) {
   const { busy, error, run } = useDownload();
+  const [open, setOpen] = useState(false);
+  const [driveBusy, setDriveBusy] = useState(false);
+  const [status, setStatus] = useState('');
+  const saveFormat = async (format: 'docx' | 'pdf' | 'gdocs') => {
+    setOpen(false);
+    setStatus('');
+    try {
+      if (format === 'gdocs') {
+        if (!isDriveConfigured()) { setStatus('Google sign-in is not configured.'); return; }
+        setDriveBusy(true);
+        const saved = await saveDocumentToGoogleDocs(() => doc);
+        setStatus(saved?.link ? `Saved. Open in Google Docs` : 'Saved to Google Drive.');
+        if (saved?.link) setStatus(`Saved. ${saved.link}`);
+      } else {
+        await run(doc, format);
+        setStatus(format === 'docx' ? 'Saved as Word.' : 'Saved as PDF.');
+      }
+    } catch (e: any) {
+      setStatus(e?.message || 'The download failed.');
+    } finally {
+      setDriveBusy(false);
+    }
+  };
   return (
     <div className="doc-card">
       <div className="doc-card-title"><FileText size={18} /><span translate="no" dir="auto">{doc.title}</span></div>
       <div className="doc-card-actions">
-        <button type="button" className="ghost" disabled={!!busy} onClick={() => void run(doc, 'docx')}><Download size={14} />{busy === 'docx' ? 'Preparing…' : 'Word (.docx)'}</button>
-        <button type="button" className="ghost" disabled={!!busy} onClick={() => void run(doc, 'pdf')}><Download size={14} />{busy === 'pdf' ? 'Preparing…' : 'PDF'}</button>
-        <DriveSaveButton getDoc={() => doc} />
+        <div className="files-menu-wrap">
+          <button type="button" className="ghost" disabled={!!busy || driveBusy} onClick={() => setOpen((v) => !v)} aria-expanded={open}>
+            <Download size={14} />{busy || driveBusy ? 'Preparing…' : 'Save…'}
+          </button>
+          {open && (
+            <div className="files-menu" role="menu">
+              <button type="button" role="menuitem" className="files-menu-item" onClick={() => void saveFormat('docx')}>Word (.docx)</button>
+              <button type="button" role="menuitem" className="files-menu-item" onClick={() => void saveFormat('pdf')}>PDF</button>
+              {isDriveConfigured() && <button type="button" role="menuitem" className="files-menu-item" onClick={() => void saveFormat('gdocs')}>Google Docs</button>}
+            </div>
+          )}
+        </div>
       </div>
-      {error && <div className="attach-error" role="alert">{error}</div>}
+      {(error || status) && <div className="attach-error" role="status">{error || status}</div>}
     </div>
   );
 }
 
-/** Small "download this reply" links under an assistant message. */
+/** Copy under an assistant reply. Full save lives in the Files panel. */
 export function MessageDownload({ title, text }: { title: string; text: string }) {
-  const { busy, error, run } = useDownload();
   const [copied, setCopied] = useState(false);
-  const doc = () => messageToDocument(title, text);
   const copy = async () => {
     try {
       await navigator.clipboard.writeText(text);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {
-      // Fallback for older browsers / denied permission
       try {
         const ta = document.createElement('textarea');
         ta.value = text;
@@ -177,15 +206,11 @@ export function MessageDownload({ title, text }: { title: string; text: string }
       <button type="button" className="link-button" onClick={() => void copy()} aria-label="Copy reply">
         <Copy size={13} style={{ marginRight: 4 }} />{copied ? 'Copied' : 'Copy'}
       </button>
-      <button type="button" className="link-button" disabled={!!busy} onClick={() => void run(doc(), 'docx')}>{busy === 'docx' ? 'Preparing…' : 'Save as Word'}</button>
-      <button type="button" className="link-button" disabled={!!busy} onClick={() => void run(doc(), 'pdf')}>{busy === 'pdf' ? 'Preparing…' : 'Save as PDF'}</button>
-      <DriveSaveButton getDoc={doc} />
-      {error && <span className="attach-error" role="alert">{error}</span>}
     </div>
   );
 }
 
-/** Whole conversation as one file. */
+/** @deprecated Stage 2: use FilesPanel Save menu instead. Kept for rare call sites. */
 export function ConversationExport({ title, history }: { title: string; history: any[] }) {
   const { busy, error, run } = useDownload();
   const doc = (): DocumentSpec => {
@@ -202,6 +227,212 @@ export function ConversationExport({ title, history }: { title: string; history:
       <DriveSaveButton getDoc={doc} />
       {error && <span className="attach-error" role="alert">{error}</span>}
     </>
+  );
+}
+
+/* ---------- Stage 2: permanent Files panel under the dialogue ---------- */
+
+export type SaveWhat = 'dialogue' | 'agent-summary' | 'full-review' | 'calendar';
+export type SaveWhere = 'docx' | 'pdf' | 'gdocs';
+
+export function FilesPanel({
+  files,
+  onFilesChange,
+  disabled,
+  expertMode,
+  title,
+  history,
+  canCalendar,
+  onAgentSummary,
+  onCalendar,
+  buildFullReview,
+}: {
+  files: Attachment[];
+  onFilesChange: (next: Attachment[]) => void;
+  disabled?: boolean;
+  expertMode?: boolean;
+  title: string;
+  history: any[];
+  canCalendar?: boolean;
+  /** Ask the agent for «Итог от агента» (document intent). */
+  onAgentSummary?: () => void;
+  /** Download .ics when review dates exist. */
+  onCalendar?: () => void;
+  /** Expert: build a DocumentSpec for the whole decision review. */
+  buildFullReview?: () => DocumentSpec;
+}) {
+  const [addOpen, setAddOpen] = useState(false);
+  const [saveOpen, setSaveOpen] = useState(false);
+  const [saveStep, setSaveStep] = useState<'what' | 'where'>('what');
+  const [what, setWhat] = useState<SaveWhat>(expertMode ? 'full-review' : 'dialogue');
+  const [status, setStatus] = useState('');
+  const [busy, setBusy] = useState(false);
+  const input = useRef<HTMLInputElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+
+  // Close menus on outside click / Esc
+  React.useEffect(() => {
+    const onDoc = (e: MouseEvent) => {
+      if (panelRef.current && !panelRef.current.contains(e.target as Node)) {
+        setAddOpen(false);
+        setSaveOpen(false);
+        setSaveStep('what');
+      }
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setAddOpen(false);
+        setSaveOpen(false);
+        setSaveStep('what');
+      }
+    };
+    document.addEventListener('mousedown', onDoc);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDoc);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, []);
+
+  const dialogueDoc = (): DocumentSpec => {
+    const sample = history.map((m) => String(m.content || '')).join(' ').slice(0, 2000);
+    const ru = detectUiLanguage(sample) === 'ru';
+    return conversationToDocument(title, history, ru
+      ? { user: 'Вы', assistant: 'Агент', attached: 'Вложения' }
+      : { user: 'You', assistant: 'Agent', attached: 'Attached' });
+  };
+
+  const pickDevice = async (fileList: FileList | null) => {
+    if (!fileList?.length) return;
+    setStatus('');
+    setAddOpen(false);
+    const room = MAX_FILES_PER_MESSAGE - files.length;
+    const chosen = Array.from(fileList).slice(0, Math.max(0, room));
+    if (fileList.length > chosen.length) setStatus(`You can attach up to ${MAX_FILES_PER_MESSAGE} files to one message.`);
+    let next = files;
+    for (const f of chosen) {
+      try {
+        const a = await uploadAttachment(f);
+        next = [...next, a];
+        onFilesChange(next);
+        setStatus(`Added ${a.name}`);
+      } catch (e: any) {
+        setStatus(e?.message || 'The file could not be attached.');
+      }
+    }
+    if (input.current) input.current.value = '';
+  };
+
+  const doSave = async (where: SaveWhere) => {
+    setSaveOpen(false);
+    setSaveStep('what');
+    setBusy(true);
+    setStatus('');
+    try {
+      if (what === 'agent-summary') {
+        onAgentSummary?.();
+        setStatus('Requesting summary from the agent…');
+        return;
+      }
+      if (what === 'calendar') {
+        onCalendar?.();
+        setStatus('Calendar downloaded.');
+        return;
+      }
+      const doc = what === 'full-review' && buildFullReview ? buildFullReview() : dialogueDoc();
+      if (where === 'gdocs') {
+        if (!isDriveConfigured()) { setStatus('Google sign-in is not configured.'); return; }
+        const saved = await saveDocumentToGoogleDocs(() => doc);
+        setStatus(saved?.link ? `Saved. Open in Google Docs: ${saved.link}` : 'Saved to Google Drive.');
+      } else {
+        await downloadDocument(doc, where);
+        setStatus(where === 'docx' ? 'Saved as Word.' : 'Saved as PDF.');
+      }
+    } catch (e: any) {
+      setStatus(e?.message || 'Save failed.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const openSave = () => {
+    setAddOpen(false);
+    setWhat(expertMode ? 'full-review' : 'dialogue');
+    setSaveStep('what');
+    setSaveOpen((v) => !v);
+  };
+
+  return (
+    <div className="files-panel" ref={panelRef}>
+      <div className="files-panel-buttons">
+        <div className="files-menu-wrap">
+          <button
+            type="button"
+            className="ghost files-panel-btn"
+            disabled={disabled || files.length >= MAX_FILES_PER_MESSAGE}
+            aria-expanded={addOpen}
+            onClick={() => { setSaveOpen(false); setAddOpen((v) => !v); }}
+          >
+            <Paperclip size={15} /> Add file
+          </button>
+          {addOpen && (
+            <div className="files-menu" role="menu">
+              <button type="button" role="menuitem" className="files-menu-item" onClick={() => input.current?.click()}>
+                From device
+              </button>
+              <button type="button" role="menuitem" className="files-menu-item" disabled title="Available in a later version">
+                From program files
+              </button>
+            </div>
+          )}
+          <input ref={input} type="file" hidden multiple accept={ACCEPT_FILES} onChange={(e) => void pickDevice(e.target.files)} />
+        </div>
+        <div className="files-menu-wrap">
+          <button
+            type="button"
+            className="ghost files-panel-btn"
+            disabled={disabled || busy}
+            aria-expanded={saveOpen}
+            onClick={openSave}
+          >
+            <Download size={15} />{busy ? 'Saving…' : 'Save to file'}
+          </button>
+          {saveOpen && (
+            <div className="files-menu" role="menu">
+              {saveStep === 'what' && (
+                <>
+                  <div className="files-menu-label">What to save</div>
+                  <button type="button" role="menuitem" className={`files-menu-item${what === 'dialogue' ? ' active' : ''}`} onClick={() => { setWhat('dialogue'); setSaveStep('where'); }}>Whole dialogue</button>
+                  <button type="button" role="menuitem" className={`files-menu-item${what === 'agent-summary' ? ' active' : ''}`} onClick={() => { setWhat('agent-summary'); void doSave('docx'); }}>Agent summary</button>
+                  {expertMode && (
+                    <button type="button" role="menuitem" className={`files-menu-item${what === 'full-review' ? ' active' : ''}`} onClick={() => { setWhat('full-review'); setSaveStep('where'); }}>Full decision review</button>
+                  )}
+                  {canCalendar && (
+                    <button type="button" role="menuitem" className="files-menu-item" onClick={() => { setWhat('calendar'); void doSave('docx'); }}>Reminder calendar (.ics)</button>
+                  )}
+                </>
+              )}
+              {saveStep === 'where' && (
+                <>
+                  <button type="button" className="files-menu-item files-menu-back" onClick={() => setSaveStep('what')}>← Back</button>
+                  <div className="files-menu-label">Format</div>
+                  <button type="button" role="menuitem" className="files-menu-item" onClick={() => void doSave('docx')}>Word (.docx)</button>
+                  <button type="button" role="menuitem" className="files-menu-item" onClick={() => void doSave('pdf')}>PDF</button>
+                  {isDriveConfigured() && (
+                    <button type="button" role="menuitem" className="files-menu-item" onClick={() => void doSave('gdocs')}>Google Docs</button>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+      <span className="attach-privacy-note" title="Files are sent to Google Gemini together with your message. The server does not keep them.">
+        File will be sent to Gemini
+      </span>
+      <AttachmentChips items={files} onRemove={(i) => onFilesChange(files.filter((_, k) => k !== i))} />
+      {status && <div className="files-panel-status" role="status">{status}</div>}
+    </div>
   );
 }
 
