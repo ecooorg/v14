@@ -9,7 +9,9 @@
     <meta property="og:description" content="Decision Cockpit: UNDERSTAND → EXPAND → ATTACK → VERIFY → LEARN. Illustration of the Before You Choose method." />
     <meta property="og:type" content="website" />
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="theme-color" content="#0b0f19" />
+    <meta name="theme-color" content="#050b13" />
+    <meta name="color-scheme" content="dark" />
+    <link rel="manifest" href="/manifest.webmanifest" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
@@ -21,10 +23,10 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
   </head>
-  <body class="min-h-full bg-[#070b14] text-slate-100 font-sans antialiased">
+  <body class="min-h-full bg-[#050b13] text-slate-100 font-sans antialiased">
     <div id="root" class="min-h-full w-full"></div>
     <script>
-      // Unregister stale service workers (PWA is disabled).
+      // Unregister stale service workers; the app does not rely on offline caching.
       if ('serviceWorker' in navigator) { navigator.serviceWorker.getRegistrations().then(rs => rs.forEach(r => r.unregister())).catch(() => {}); }
     </script>
     <script type="module" src="/src/main.tsx"></script>
