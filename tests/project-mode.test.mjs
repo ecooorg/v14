@@ -669,7 +669,6 @@ const test = (await import("node:test")).default;
 const root = new URL('..', import.meta.url).pathname.replace(/\/$/, '');
 
 test('docs and migration for P20 exist', () => {
-  assert.ok(existsSync(`${root}/docs/P20-SPEC.md`));
   assert.ok(existsSync(`${root}/migrations/011_code_task_package_approval.sql`));
   assert.ok(existsSync(`${root}/server/briefWriter.ts`));
 });
@@ -723,7 +722,6 @@ const test = (await import("node:test")).default;
 const root = new URL('..', import.meta.url).pathname.replace(/\/$/, '');
 
 test('P20b docs and sources exist', () => {
-  assert.ok(existsSync(`${root}/docs/P20b-SPEC.md`));
   assert.ok(readFileSync(`${root}/server/taskService.ts`, 'utf8').includes('gatesAllowTaskPass'));
   assert.ok(readFileSync(`${root}/server/gateEngine.ts`, 'utf8').includes('gatesAllowTaskPass'));
   assert.ok(readFileSync(`${root}/server.ts`, 'utf8').includes("gates/:gate/approve"));
@@ -781,7 +779,6 @@ const test = (await import("node:test")).default;
 const root = new URL('..', import.meta.url).pathname.replace(/\/$/, '');
 
 test('P21 docs and sources exist', () => {
-  assert.ok(existsSync(`${root}/docs/P21-SPEC.md`));
   assert.ok(existsSync(`${root}/server/reviewer.ts`));
   assert.ok(existsSync(`${root}/migrations/012_code_task_decision.sql`));
   const srv = readFileSync(`${root}/server.ts`, 'utf8');
@@ -859,7 +856,6 @@ const test = (await import("node:test")).default;
 const root = new URL('..', import.meta.url).pathname.replace(/\/$/, '');
 
 test('P22 docs and sources exist', () => {
-  assert.ok(existsSync(`${root}/docs/P22-SPEC.md`));
   assert.ok(existsSync(`${root}/server/repairLoop.ts`));
   assert.ok(existsSync(`${root}/migrations/013_repair_loop.sql`));
   const srv = readFileSync(`${root}/server.ts`, 'utf8');
@@ -993,8 +989,8 @@ test('renderOpsHtml escapes and lists metrics', () => {
   assert.ok(!html.includes('<script>'));
 });
 
-test('ADR-09 and OPS_ROLLBACK exist', () => {
-  for (const f of ['docs/ADR-09-backup-rpo-rto.md', 'docs/OPS_ROLLBACK.md', 'docs/P24-SPEC.md']) {
+test('backup-restore check script exists', () => {
+  for (const f of ['scripts/backup-restore-check.mjs']) {
     assert.ok(fs.existsSync(path.join(root, f)), f);
   }
 });
@@ -1103,13 +1099,8 @@ test('P53 interface text: plain rows, scope sentence, no env names, no "administ
   assert.doesNotMatch(pm, /when your administrator has enabled/);
 });
 
-test('P53 documents: ADR-06 Amendment 1 and STATUS carry the scope decision', () => {
-  const adr = read('docs/ADR-06-github-repositories.md');
-  assert.match(adr, /Amendment 1/);
-  assert.match(adr, /analysis \+ ZIP/);
-  assert.match(adr, /GITHUB_DIFF_UPLOAD=true/);
-  assert.match(adr, /implies no GitHub write/);
-  assert.match(read('docs/STATUS.md'), /ADR-06 Amendment 1/);
+test('P53 scope decision is carried by code comments and .env.example', () => {
+  assert.match(gh, /implies no GitHub write/);
   assert.match(read('.env.example'), /does NOT switch on any GitHub write/);
 });
 }

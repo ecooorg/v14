@@ -173,18 +173,12 @@ test('audit catalog covers TZ §13.5 required event names', () => {
   assert.ok(HUMAN_ONLY_AUDIT_EVENTS.includes('gate.waived'));
 });
 
-test('source documents for threat model and rights review exist', () => {
-  for (const f of ['docs/THREAT_MODEL.md', 'docs/RIGHTS_REVIEW.md', 'docs/SECURITY_POLICY.md', 'docs/P23-SPEC.md']) {
-    assert.ok(fs.existsSync(path.join(root, f)), f);
-    assert.ok(fs.readFileSync(path.join(root, f), 'utf8').length > 200, f);
-  }
-});
 
 test('security policy still forbids product merge and secret logging', () => {
-  const pol = fs.readFileSync(path.join(root, 'docs/SECURITY_POLICY.md'), 'utf8');
+  const pol = fs.readFileSync(path.join(root, 'docs/07-Security-Privacy-and-Operations.md'), 'utf8');
   assert.match(pol, /merge/i);
   assert.match(pol, /secret/i);
-  assert.match(pol, /Never commit|must not appear/i);
+  assert.match(pol, /do not reproduce/i);
 });
 }
 // ===== END p23-acceptance.test.mjs =====
