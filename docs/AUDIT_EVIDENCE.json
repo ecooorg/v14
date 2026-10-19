@@ -1,0 +1,183 @@
+{
+  "audit_date": "2026-10-19",
+  "source_archive": "bf-main (30).zip",
+  "source_archive_sha256": "d0ac5d3dc9052aced2454bd7d1c7905af5af0825a85116eb33fe9938e37be396",
+  "product_version": "55",
+  "node_version_observed": "v22.16.0",
+  "npm_version_observed": "10.9.2",
+  "extracted_file_count_excluding_node_modules": 425,
+  "docs_markdown_count": 120,
+  "test_mjs_count": 100,
+  "sql_migration_count": 14,
+  "registered_route_count": 74,
+  "environment_variable_reference_count": 68,
+  "dependency_install": "BLOCKED: npm ci offline failed with ENOTCACHED for zod tarball",
+  "executed_checks": [
+    {
+      "command": "node scripts/check-version.mjs",
+      "status": "PASS",
+      "exit": "0",
+      "note": "Version check OK: 55"
+    },
+    {
+      "command": "node scripts/check-docs.mjs",
+      "status": "PASS",
+      "exit": "0",
+      "note": "check:docs OK (123 Markdown files, 420 backticked paths checked)"
+    },
+    {
+      "command": "node scripts/lint-copy.mjs",
+      "status": "PASS",
+      "exit": "0",
+      "note": "lint:copy OK"
+    },
+    {
+      "command": "node tests/version-check.test.mjs",
+      "status": "PASS",
+      "exit": "0",
+      "note": "version-check tests passed"
+    },
+    {
+      "command": "node tests/package-c.test.mjs",
+      "status": "PASS",
+      "exit": "0",
+      "note": "package C static checks passed"
+    },
+    {
+      "command": "node --experimental-strip-types --test tests/p56-feature-guard.test.mjs",
+      "status": "PASS",
+      "exit": "0",
+      "note": "7 tests passed, 0 failed"
+    },
+    {
+      "command": "node --experimental-strip-types --test tests/gate-engine.test.mjs",
+      "status": "PASS",
+      "exit": "0",
+      "note": "7 tests passed, 0 failed"
+    },
+    {
+      "command": "node --experimental-strip-types --test tests/p48-epistemic.test.mjs",
+      "status": "PASS",
+      "exit": "0",
+      "note": "8 tests passed, 0 failed"
+    },
+    {
+      "command": "node --experimental-strip-types --test tests/code-executor.test.mjs",
+      "status": "BLOCKED",
+      "exit": "1",
+      "note": "ERR_MODULE_NOT_FOUND: zod; dependency installation incomplete"
+    },
+    {
+      "command": "npm ci --offline --ignore-scripts --no-audit --no-fund",
+      "status": "BLOCKED",
+      "exit": "1",
+      "note": "ENOTCACHED: zod package unavailable in local npm cache"
+    },
+    {
+      "command": "npm run typecheck (via npm run check)",
+      "status": "BLOCKED",
+      "exit": "2",
+      "note": "TypeScript starts but cannot find type definition vite/client because dependencies are incomplete"
+    },
+    {
+      "command": "npm run build",
+      "status": "NOT_RUN",
+      "exit": "—",
+      "note": "Cannot run: dependency installation incomplete"
+    },
+    {
+      "command": "npm run check",
+      "status": "BLOCKED",
+      "exit": "2",
+      "note": "Version/docs/version-test/copy-lint pass; chain stops at typecheck with missing vite/client definitions"
+    },
+    {
+      "command": "PostgreSQL live tests",
+      "status": "NOT_RUN",
+      "exit": "—",
+      "note": "No configured DATABASE_URL / test PostgreSQL service in this environment"
+    },
+    {
+      "command": "Google/Groq/GitHub/Railway live acceptance",
+      "status": "NOT_RUN",
+      "exit": "—",
+      "note": "No production credentials or live service evidence available"
+    },
+    {
+      "command": "node --test tests/p41-ui1.test.mjs",
+      "status": "PASS",
+      "exit": "0",
+      "note": "7 tests passed, 0 failed"
+    },
+    {
+      "command": "node --test tests/p43-rm-c3.test.mjs",
+      "status": "PASS",
+      "exit": "0",
+      "note": "6 tests passed, 0 failed"
+    },
+    {
+      "command": "node --experimental-strip-types --test tests/p55-test-round1.test.mjs",
+      "status": "PASS",
+      "exit": "0",
+      "note": "15 tests passed, 0 failed"
+    },
+    {
+      "command": "node --experimental-strip-types --test tests/p50-web-search.test.mjs",
+      "status": "PASS",
+      "exit": "0",
+      "note": "21 tests passed, 0 failed"
+    },
+    {
+      "command": "node --experimental-strip-types --test tests/redact.test.mjs",
+      "status": "PASS",
+      "exit": "0",
+      "note": "5 tests passed, 0 failed"
+    },
+    {
+      "command": "node --experimental-strip-types --test tests/injection-corpus.test.mjs",
+      "status": "PASS",
+      "exit": "0",
+      "note": "4 tests passed, 0 failed"
+    },
+    {
+      "command": "node --experimental-strip-types --test tests/reasoning.test.mjs",
+      "status": "PASS",
+      "exit": "0",
+      "note": "1 test passed, 0 failed"
+    },
+    {
+      "command": "node --experimental-strip-types --test tests/driveMerge.test.mjs",
+      "status": "PASS",
+      "exit": "0",
+      "note": "1 test passed, 0 failed"
+    },
+    {
+      "command": "node --experimental-strip-types --test tests/export-name.test.mjs",
+      "status": "PASS",
+      "exit": "0",
+      "note": "1 test passed, 0 failed"
+    },
+    {
+      "command": "node --experimental-strip-types --test tests/p53-project-scope.test.mjs",
+      "status": "BLOCKED",
+      "exit": "1",
+      "note": "ERR_MODULE_NOT_FOUND: zod; dependency installation incomplete"
+    },
+    {
+      "command": "node --experimental-strip-types --test tests/p54-project-delivery.test.mjs",
+      "status": "BLOCKED",
+      "exit": "1",
+      "note": "13 passed; 1 React render test blocked because react package is missing"
+    },
+    {
+      "command": "node --experimental-strip-types --test tests/security.test.mjs",
+      "status": "BLOCKED",
+      "exit": "1",
+      "note": "Node strip-only mode cannot compile TypeScript parameter properties; project tsx runner unavailable"
+    }
+  ],
+  "live_acceptance": "NOT_RUN",
+  "full_check": "NOT_RUN",
+  "build": "NOT_RUN",
+  "typecheck": "NOT_RUN"
+}
