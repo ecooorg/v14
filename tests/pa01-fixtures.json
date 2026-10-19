@@ -1,0 +1,372 @@
+{
+ "positive": [
+  {
+   "task": "t1",
+   "executor": "manual",
+   "applies": true,
+   "ci_first_green": true,
+   "green": true,
+   "fixes": 0,
+   "human_minutes": 30,
+   "cost": 1,
+   "sha": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2",
+   "ci_url": "https://github.com/example/e01/actions/runs/1"
+  },
+  {
+   "task": "t1",
+   "executor": "model_patch",
+   "applies": true,
+   "ci_first_green": true,
+   "green": true,
+   "fixes": 0,
+   "human_minutes": 20,
+   "cost": 1,
+   "sha": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2",
+   "ci_url": "https://github.com/example/e01/actions/runs/1"
+  },
+  {
+   "task": "t2",
+   "executor": "manual",
+   "applies": true,
+   "ci_first_green": true,
+   "green": true,
+   "fixes": 0,
+   "human_minutes": 30,
+   "cost": 1,
+   "sha": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2",
+   "ci_url": "https://github.com/example/e01/actions/runs/1"
+  },
+  {
+   "task": "t2",
+   "executor": "model_patch",
+   "applies": true,
+   "ci_first_green": true,
+   "green": true,
+   "fixes": 1,
+   "human_minutes": 20,
+   "cost": 1,
+   "sha": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2",
+   "ci_url": "https://github.com/example/e01/actions/runs/1"
+  },
+  {
+   "task": "t3",
+   "executor": "manual",
+   "applies": true,
+   "ci_first_green": true,
+   "green": true,
+   "fixes": 0,
+   "human_minutes": 30,
+   "cost": 1,
+   "sha": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2",
+   "ci_url": "https://github.com/example/e01/actions/runs/1"
+  },
+  {
+   "task": "t3",
+   "executor": "model_patch",
+   "applies": true,
+   "ci_first_green": true,
+   "green": false,
+   "fixes": 2,
+   "human_minutes": 20,
+   "cost": 1,
+   "sha": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2",
+   "ci_url": "https://github.com/example/e01/actions/runs/1"
+  }
+ ],
+ "negative": [
+  {
+   "task": "t1",
+   "executor": "manual",
+   "applies": true,
+   "ci_first_green": true,
+   "green": true,
+   "fixes": 0,
+   "human_minutes": 20,
+   "cost": 1,
+   "sha": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2",
+   "ci_url": "https://github.com/example/e01/actions/runs/1"
+  },
+  {
+   "task": "t1",
+   "executor": "model_patch",
+   "applies": true,
+   "ci_first_green": true,
+   "green": false,
+   "fixes": 2,
+   "human_minutes": 20,
+   "cost": 1,
+   "sha": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2",
+   "ci_url": "https://github.com/example/e01/actions/runs/1"
+  },
+  {
+   "task": "t2",
+   "executor": "manual",
+   "applies": true,
+   "ci_first_green": true,
+   "green": true,
+   "fixes": 0,
+   "human_minutes": 20,
+   "cost": 1,
+   "sha": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2",
+   "ci_url": "https://github.com/example/e01/actions/runs/1"
+  },
+  {
+   "task": "t2",
+   "executor": "model_patch",
+   "applies": true,
+   "ci_first_green": true,
+   "green": false,
+   "fixes": 2,
+   "human_minutes": 20,
+   "cost": 1,
+   "sha": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2",
+   "ci_url": "https://github.com/example/e01/actions/runs/1"
+  },
+  {
+   "task": "t3",
+   "executor": "manual",
+   "applies": true,
+   "ci_first_green": true,
+   "green": true,
+   "fixes": 0,
+   "human_minutes": 20,
+   "cost": 1,
+   "sha": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2",
+   "ci_url": "https://github.com/example/e01/actions/runs/1"
+  },
+  {
+   "task": "t3",
+   "executor": "model_patch",
+   "applies": true,
+   "ci_first_green": true,
+   "green": true,
+   "fixes": 0,
+   "human_minutes": 20,
+   "cost": 1,
+   "sha": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2",
+   "ci_url": "https://github.com/example/e01/actions/runs/1"
+  }
+ ],
+ "both_failed": [
+  {
+   "task": "t1",
+   "executor": "manual",
+   "applies": true,
+   "ci_first_green": true,
+   "green": false,
+   "fixes": 2,
+   "human_minutes": 20,
+   "cost": 1,
+   "sha": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2",
+   "ci_url": "https://github.com/example/e01/actions/runs/1"
+  },
+  {
+   "task": "t1",
+   "executor": "model_patch",
+   "applies": true,
+   "ci_first_green": true,
+   "green": false,
+   "fixes": 2,
+   "human_minutes": 20,
+   "cost": 1,
+   "sha": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2",
+   "ci_url": "https://github.com/example/e01/actions/runs/1"
+  },
+  {
+   "task": "t2",
+   "executor": "manual",
+   "applies": true,
+   "ci_first_green": true,
+   "green": false,
+   "fixes": 2,
+   "human_minutes": 20,
+   "cost": 1,
+   "sha": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2",
+   "ci_url": "https://github.com/example/e01/actions/runs/1"
+  },
+  {
+   "task": "t2",
+   "executor": "model_patch",
+   "applies": true,
+   "ci_first_green": true,
+   "green": false,
+   "fixes": 2,
+   "human_minutes": 20,
+   "cost": 1,
+   "sha": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2",
+   "ci_url": "https://github.com/example/e01/actions/runs/1"
+  },
+  {
+   "task": "t3",
+   "executor": "manual",
+   "applies": true,
+   "ci_first_green": true,
+   "green": true,
+   "fixes": 0,
+   "human_minutes": 20,
+   "cost": 1,
+   "sha": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2",
+   "ci_url": "https://github.com/example/e01/actions/runs/1"
+  },
+  {
+   "task": "t3",
+   "executor": "model_patch",
+   "applies": true,
+   "ci_first_green": true,
+   "green": true,
+   "fixes": 0,
+   "human_minutes": 20,
+   "cost": 1,
+   "sha": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2",
+   "ci_url": "https://github.com/example/e01/actions/runs/1"
+  }
+ ],
+ "needs_human": [
+  {
+   "task": "t1",
+   "executor": "manual",
+   "applies": true,
+   "ci_first_green": true,
+   "green": true,
+   "fixes": 0,
+   "human_minutes": 5,
+   "cost": 1,
+   "sha": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2",
+   "ci_url": "https://github.com/example/e01/actions/runs/1"
+  },
+  {
+   "task": "t1",
+   "executor": "model_patch",
+   "applies": true,
+   "ci_first_green": true,
+   "green": true,
+   "fixes": 0,
+   "human_minutes": 20,
+   "cost": 1,
+   "sha": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2",
+   "ci_url": "https://github.com/example/e01/actions/runs/1"
+  },
+  {
+   "task": "t2",
+   "executor": "manual",
+   "applies": true,
+   "ci_first_green": true,
+   "green": true,
+   "fixes": 0,
+   "human_minutes": 5,
+   "cost": 1,
+   "sha": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2",
+   "ci_url": "https://github.com/example/e01/actions/runs/1"
+  },
+  {
+   "task": "t2",
+   "executor": "model_patch",
+   "applies": true,
+   "ci_first_green": true,
+   "green": true,
+   "fixes": 0,
+   "human_minutes": 20,
+   "cost": 1,
+   "sha": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2",
+   "ci_url": "https://github.com/example/e01/actions/runs/1"
+  },
+  {
+   "task": "t3",
+   "executor": "manual",
+   "applies": true,
+   "ci_first_green": true,
+   "green": true,
+   "fixes": 0,
+   "human_minutes": 5,
+   "cost": 1,
+   "sha": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2",
+   "ci_url": "https://github.com/example/e01/actions/runs/1"
+  },
+  {
+   "task": "t3",
+   "executor": "model_patch",
+   "applies": true,
+   "ci_first_green": true,
+   "green": true,
+   "fixes": 0,
+   "human_minutes": 20,
+   "cost": 1,
+   "sha": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2",
+   "ci_url": "https://github.com/example/e01/actions/runs/1"
+  }
+ ],
+ "too_many_fixes": [
+  {
+   "task": "t1",
+   "executor": "manual",
+   "applies": true,
+   "ci_first_green": true,
+   "green": true,
+   "fixes": 0,
+   "human_minutes": 20,
+   "cost": 1,
+   "sha": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2",
+   "ci_url": "https://github.com/example/e01/actions/runs/1"
+  },
+  {
+   "task": "t1",
+   "executor": "model_patch",
+   "applies": true,
+   "ci_first_green": true,
+   "green": true,
+   "fixes": 3,
+   "human_minutes": 20,
+   "cost": 1,
+   "sha": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2",
+   "ci_url": "https://github.com/example/e01/actions/runs/1"
+  },
+  {
+   "task": "t2",
+   "executor": "manual",
+   "applies": true,
+   "ci_first_green": true,
+   "green": true,
+   "fixes": 0,
+   "human_minutes": 20,
+   "cost": 1,
+   "sha": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2",
+   "ci_url": "https://github.com/example/e01/actions/runs/1"
+  },
+  {
+   "task": "t2",
+   "executor": "model_patch",
+   "applies": true,
+   "ci_first_green": true,
+   "green": true,
+   "fixes": 3,
+   "human_minutes": 20,
+   "cost": 1,
+   "sha": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2",
+   "ci_url": "https://github.com/example/e01/actions/runs/1"
+  },
+  {
+   "task": "t3",
+   "executor": "manual",
+   "applies": true,
+   "ci_first_green": true,
+   "green": true,
+   "fixes": 0,
+   "human_minutes": 20,
+   "cost": 1,
+   "sha": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2",
+   "ci_url": "https://github.com/example/e01/actions/runs/1"
+  },
+  {
+   "task": "t3",
+   "executor": "model_patch",
+   "applies": true,
+   "ci_first_green": true,
+   "green": true,
+   "fixes": 3,
+   "human_minutes": 20,
+   "cost": 1,
+   "sha": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2",
+   "ci_url": "https://github.com/example/e01/actions/runs/1"
+  }
+ ]
+}
