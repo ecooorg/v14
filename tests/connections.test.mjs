@@ -60,10 +60,19 @@ test('verify:connections --dry-run makes no network calls', async () => {
 
 test('connectors.yaml and CONNECTIONS.md agree on connectors and variable names', () => {
   const m = JSON.parse(fs.readFileSync('connectors.yaml', 'utf8').split('\n').filter((l) => !/^\s*#/.test(l)).join('\n'));
-  const doc = fs.readFileSync('docs/CONNECTIONS.md', 'utf8');
+  // Connector contract is consolidated into the API contract and .env.example.
+  const doc = fs.readFileSync('docs/03-API-and-Integration-Contracts.md', 'utf8');
+  const env = fs.readFileSync('.env.example', 'utf8');
+  const deploy = fs.readFileSync('DEPLOY_RAILWAY.md', 'utf8');
   for (const [id, c] of Object.entries(m.connectors)) {
-    assert.ok(doc.includes(`\`${id}\``), `doc mentions connector ${id}`);
-    for (const n of [...c.env.required, ...(c.env.optional || [])]) assert.ok(doc.includes(n), `doc mentions ${n}`);
+    const service = String(c.service || id);
+    assert.ok([doc, env, deploy].some((source) =>
+      source.toLowerCase().includes(id.toLowerCase()) ||
+      source.toLowerCase().includes(service.toLowerCase())
+    ), `canonical config mentions connector ${id}`);
+    for (const n of [...c.env.required, ...(c.env.optional || [])]) {
+      assert.ok([doc, env, deploy].some((source) => source.includes(n)), `canonical config mentions ${n}`);
+    }
   }
   assert.ok(!JSON.stringify(m).match(/sk-|AIza/), 'no secret-like values in the manifest');
 });

@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 
 const app = readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8');
 const status = readFileSync(new URL('../docs/STATUS.md', import.meta.url), 'utf8');
-const journal = readFileSync(new URL('../docs/PATCH_JOURNAL.md', import.meta.url), 'utf8');
+const workspacePanel = readFileSync(new URL('../src/WorkspacePanel.tsx', import.meta.url), 'utf8');
 const modeMenu = readFileSync(new URL('../src/ModeMenu.tsx', import.meta.url), 'utf8');
 const projectUi = readFileSync(new URL('../src/ProjectMode.tsx', import.meta.url), 'utf8');
 
@@ -26,19 +26,15 @@ test('mode selection is explicit and session-persisted', () => {
   assert.match(modeMenu, /START_MODE_KEY = 'biforge-start-mode'/);
 });
 
-test('STATUS orders QA1 between UI1 and MANUAL1 and records approved UX1 decision', () => {
-  const ui = status.indexOf('**UI1**');
-  const qa = status.indexOf('**QA1**');
-  const manual = status.indexOf('**MANUAL1**');
-  assert.ok(ui >= 0, 'STATUS must mention **UI1**');
-  assert.ok(qa >= 0, 'STATUS must mention **QA1**');
-  assert.ok(manual >= 0, 'STATUS must mention **MANUAL1**');
-  assert.ok(ui < qa && qa < manual, 'STATUS order: UI1 before QA1 before MANUAL1');
+test('STATUS keeps the current owner acceptance gate without historical patch sequencing', () => {
+  assert.match(status, /MANUAL1/);
+  assert.match(status, /not fully verified|not claimed complete/i);
+  assert.match(status, /Simple \/ Expert \/ Project/);
   assert.doesNotMatch(status, /UX1 feedback\?/i);
 });
 
-test('patch journal records existing folder picker menu behavior', () => {
-  assert.match(journal, /PICK_FOLDER_EVENT/);
+test('folder picker menu behavior remains wired in the application', () => {
+  assert.match(workspacePanel, /PICK_FOLDER_EVENT/);
 });
 
 test('Change mode control returns to start screen', () => {

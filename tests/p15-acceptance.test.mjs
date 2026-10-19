@@ -54,7 +54,10 @@ test('Task PASS is impossible without explicit successful validation evidence', 
   assert.match(server, /to: input\.passed \? 'PASS' : 'FAIL'/);
 });
 
-test('E-01 closure: ADR-10 accepted; scenario 18.1 remains owner/live (ARCHIVE/P15-REPORT optional off-repo)', () => {
-  assert.match(read('docs/ADR-10-code-executor.md'), /Status: Accepted/i);
-  // Historical table lived in ARCHIVE/P15-REPORT.md; may be local-only per HISTORY_OFFREPO.
+test('E-01 closure: current code-delivery boundary is documented; historical report is optional', () => {
+  // ADR-10 was retired; the current execution boundary is maintained in canonical docs/config.
+  assert.match(read('docs/02-Architecture-and-Components.md'), /model_patch.*source ZIP/i);
+  assert.match(read('docs/07-Security-Privacy-and-Operations.md'), /GitHub write.*off by default|read-only by default/i);
+  assert.match(read('.env.example'), /CODE_EXECUTOR=model_patch/);
+  // Historical E-01 tables are intentionally not required in the repository.
 });

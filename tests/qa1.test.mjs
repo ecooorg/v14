@@ -132,12 +132,11 @@ test('QA1 UI: start screen offers Simple / Expert / Project and disables unavail
 // ---------------------------------------------------------------------------
 // 7. STATUS sequencing
 // ---------------------------------------------------------------------------
-test('QA1 docs: STATUS sequences UI1 → QA1 → MANUAL1', () => {
+test('QA1 docs: STATUS remains the single current progress pointer', () => {
   const status = read('docs/STATUS.md');
-  assert.match(status, /UI1/);
-  const qa = status.indexOf('**QA1**');
-  const manual = status.indexOf('**MANUAL1**');
-  assert.ok(qa >= 0 && manual >= 0 && qa < manual, 'STATUS order QA1 before MANUAL1');
+  assert.match(status, /single authoritative progress file/i);
+  assert.match(status, /MANUAL1/);
+  assert.match(status, /not fully verified|not claimed complete/i);
 });
 
 // ---------------------------------------------------------------------------

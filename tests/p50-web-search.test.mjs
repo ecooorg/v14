@@ -175,7 +175,7 @@ test('P50 server wiring: gated by the flag, never throws out of the handler, res
 });
 
 test('P50 docs and connection manifest mention the new variables', () => {
-  for (const f of ['.env.example', 'docs/CONNECTIONS.md', 'docs/P50-SPEC.md']) {
+  for (const f of ['.env.example', 'docs/03-API-and-Integration-Contracts.md', 'docs/08-Deployment-and-Runbook.md']) {
     assert.match(read(f), /ENABLE_WEB_SEARCH/, f);
   }
   const manifest = JSON.parse(read('connectors.yaml').split('\n').filter((l) => !/^\s*#/.test(l)).join('\n'));

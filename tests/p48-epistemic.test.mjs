@@ -122,7 +122,7 @@ test('P48 soft-fail / information path remains present', () => {
 });
 
 test('P48 docs and version surfaces', () => {
-  assert.match(read('docs/P48-SPEC.md'), /variant A/i);
+  assert.match(read('docs/05-Agent-Runtime-and-Prompt-Contracts.md'), /uncertainty|verification|epistemic/i);
   // The version moves with every patch; P48 only requires that it is at least 48 and that package.json agrees with src/config.ts
   // (scripts/check-version.mjs owns the full consistency rules).
   const version = read('src/config.ts').match(/APP_VERSION = '(\d+)'/)?.[1];

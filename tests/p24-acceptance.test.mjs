@@ -67,10 +67,12 @@ test('renderOpsHtml escapes and lists metrics', () => {
   assert.ok(!html.includes('<script>'));
 });
 
-test('ADR-09 and OPS_ROLLBACK exist', () => {
-  for (const f of ['docs/ADR-09-backup-rpo-rto.md', 'docs/OPS_ROLLBACK.md', 'docs/P24-SPEC.md']) {
-    assert.ok(fs.existsSync(path.join(root, f)), f);
-  }
+test('consolidated operations contract covers backup and rollback', () => {
+  const ops = fs.readFileSync(path.join(root, 'docs/07-Security-Privacy-and-Operations.md'), 'utf8');
+  const runbook = fs.readFileSync(path.join(root, 'docs/08-Deployment-and-Runbook.md'), 'utf8');
+  assert.match(ops, /backup/i);
+  assert.match(runbook, /rollback/i);
+  assert.match(runbook, /restore/i);
 });
 
 test('ops:backup-check exits 0 offline with migrations on disk', async () => {

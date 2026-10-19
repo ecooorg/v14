@@ -53,7 +53,7 @@ test('Gates: all required steps with records give POSITIVE; a gate is never acce
   }
 });
 
-test('PASS without a record counts as NOT_RUN (docs/NEXT.md rule 2)', () => {
+test('PASS without a record counts as NOT_RUN', () => {
   assert.equal(stepVerdict('RM-B4', { status: 'PASS' }).ok, false);
   assert.equal(stepVerdict('RM-B4', { status: 'PASS', record: '  ' }).ok, false);
   assert.equal(stepVerdict('RM-B4', { status: 'PASS', record: REC }).ok, true);
@@ -61,8 +61,8 @@ test('PASS without a record counts as NOT_RUN (docs/NEXT.md rule 2)', () => {
 
 test('Attestation closes only owner-judgement steps; WAIVED needs owner and reason; scripted steps carry a deviation', () => {
   assert.ok(ATTEST_ALLOWED.has('RM-B1'));
-  assert.equal(stepVerdict('RM-B1', { status: 'OWNER_ATTESTED', record: 'docs/ADR-10-code-executor.md' }).ok, true);
-  assert.equal(stepVerdict('RM-B4', { status: 'OWNER_ATTESTED', record: 'docs/ADR-10-code-executor.md' }).ok, false);
+  assert.equal(stepVerdict('RM-B1', { status: 'OWNER_ATTESTED', record: 'docs/07-Security-Privacy-and-Operations.md' }).ok, true);
+  assert.equal(stepVerdict('RM-B4', { status: 'OWNER_ATTESTED', record: 'docs/07-Security-Privacy-and-Operations.md' }).ok, false);
   assert.equal(stepVerdict('RM-B5', { status: 'OWNER_ATTESTED', record: 'x' }).ok, false);
   assert.equal(stepVerdict('RM-E1', { status: 'WAIVED', reason: 'r' }).ok, false);
   assert.equal(stepVerdict('RM-E1', { status: 'WAIVED', by: 'owner' }).ok, false);
@@ -160,10 +160,11 @@ test('Workflow evidence.yml is read-only, manual and writes nothing', () => {
   for (const m of y.matchAll(/\$\{\{\s*([^}]+?)\s*\}\}/g)) assert.match(m[1], /^(secrets\.[A-Z_]+|vars\.[A-Z_]+|github\.sha)$/, m[1]);
 });
 
-test('Delegation policy is in force, tiers are written down, tier 3 is not delegable', () => {
-  const d = read('docs/DELEGATION.md');
-  for (const t of ['Tier 0', 'Tier 1', 'Tier 2', 'Tier 3']) assert.ok(d.includes(t) || d.includes(t.replace('Tier ', '| ')), t);
-  assert.match(d, /merge/i);
-  assert.match(d, /Silence never means consent/);
-  assert.match(read('AGENTS.md'), /docs\/DELEGATION\.md/);
+test('Delegation policy is consolidated in AGENTS.md; tier 3 remains owner-only', () => {
+  const policy = read('AGENTS.md');
+  assert.match(policy, /Tier 3/);
+  assert.match(policy, /Never decide alone/i);
+  assert.match(policy, /merge to production/i);
+  assert.match(policy, /explicit owner authorisation/i);
+  assert.doesNotMatch(policy, /docs\/DELEGATION\.md/);
 });

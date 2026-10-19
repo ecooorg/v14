@@ -75,12 +75,11 @@ test('P53 interface text: plain rows, scope sentence, no env names, no "administ
   assert.doesNotMatch(pm, /when your administrator has enabled/);
 });
 
-test('P53 documents: ADR-06 Amendment 1 and STATUS carry the scope decision', () => {
-  const adr = read('docs/ADR-06-github-repositories.md');
-  assert.match(adr, /Amendment 1/);
-  assert.match(adr, /analysis \+ ZIP/);
-  assert.match(adr, /GITHUB_DIFF_UPLOAD=true/);
-  assert.match(adr, /implies no GitHub write/);
-  assert.match(read('docs/STATUS.md'), /ADR-06 Amendment 1/);
+test('current canonical docs preserve analysis + ZIP scope and separate GitHub write gate', () => {
+  const architecture = read('docs/02-Architecture-and-Components.md');
+  const security = read('docs/07-Security-Privacy-and-Operations.md');
+  assert.match(architecture, /model_patch.*source ZIP/i);
+  assert.match(security, /GitHub write.*off by default|read-only by default/i);
   assert.match(read('.env.example'), /does NOT switch on any GitHub write/);
+  assert.match(read('docs/STATUS.md'), /GitHub write deferred/i);
 });

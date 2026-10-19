@@ -6,8 +6,9 @@ import test from 'node:test';
 
 const root = new URL('..', import.meta.url).pathname.replace(/\/$/, '');
 
-test('P20b docs and sources exist', () => {
-  assert.ok(existsSync(`${root}/docs/P20b-SPEC.md`));
+test('gate implementation and canonical contract exist', () => {
+  assert.ok(existsSync(`${root}/docs/04-Database-and-State-Machines.md`));
+  assert.ok(existsSync(`${root}/docs/09-Testing-and-Equivalence.md`));
   assert.ok(readFileSync(`${root}/server/taskService.ts`, 'utf8').includes('gatesAllowTaskPass'));
   assert.ok(readFileSync(`${root}/server/gateEngine.ts`, 'utf8').includes('gatesAllowTaskPass'));
   assert.ok(readFileSync(`${root}/server.ts`, 'utf8').includes("gates/:gate/approve"));

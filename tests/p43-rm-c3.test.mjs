@@ -11,24 +11,16 @@ import { dirname, join } from 'node:path';
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const read = (rel) => readFileSync(join(root, rel), 'utf8');
 
-test('P43 STATUS records RM-C3 closed and model_patch authorization', () => {
+test('Current STATUS preserves model_patch authorization boundary', () => {
   const status = read('docs/STATUS.md');
-  assert.match(status, /RM-C3/);
   assert.match(status, /model_patch/);
-  assert.match(status, /P43/);
-  assert.doesNotMatch(status, /RM-C3 still needs/i);
+  assert.match(status, /GitHub write deferred/i);
+  assert.match(status, /GitHub App remains read-only until authorised/i);
 });
 
-test('P43 OWNER_OPS marks RM-C3 closed', () => {
-  const ops = read('docs/OWNER_OPS.md');
-  assert.match(ops, /RM-C3 closed/i);
-  assert.match(ops, /model_patch/);
-});
-
-test('P43 NEXT points RM-C3 closed', () => {
-  const next = read('docs/NEXT.md');
-  assert.match(next, /RM-C3/);
-  assert.match(next, /closed/i);
+test('canonical security and status docs preserve the current delivery boundary', () => {
+  assert.match(read('docs/07-Security-Privacy-and-Operations.md'), /model_patch/i);
+  assert.match(read('docs/STATUS.md'), /GitHub write deferred/i);
 });
 
 test('P43 runtime gate unchanged: CODE_EXECUTOR must equal model_patch', () => {
@@ -46,7 +38,7 @@ test('P43 does not enable GitHub App write by default', () => {
   assert.match(env, /GITHUB_DIFF_UPLOAD/);
 });
 
-test('P43 ADR-10 evidence still present (E-01 lab notes may live off-repo)', () => {
-  assert.ok(existsSync(join(root, 'docs/ADR-10-code-executor.md')));
-  // ARCHIVE/E01-* moved off-repo (docs/HISTORY_OFFREPO.md); presence is optional.
+test('retired ADR-10 and E-01 reports are intentionally not required', () => {
+  assert.equal(existsSync(join(root, 'docs/ADR-10-code-executor.md')), false);
+  assert.match(read('docs/02-Architecture-and-Components.md'), /model_patch.*source ZIP/i);
 });

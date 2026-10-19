@@ -147,16 +147,12 @@ test('pack end to end: only changed and new files in the archive, report written
 
 test('mandatory delivery contract requires a verified bf-PNN.zip and forbids diff-only handoff', () => {
   const agents = fs.readFileSync(path.join(root, 'AGENTS.md'), 'utf8');
-  const prompt = fs.readFileSync(path.join(root, 'docs/PATCH_PROMPT.md'), 'utf8');
   const start = fs.readFileSync(path.join(root, 'docs/START_HERE.md'), 'utf8');
   const packer = fs.readFileSync(path.join(root, 'scripts/patch-pack.mjs'), 'utf8');
-  for (const text of [agents, prompt]) {
-    assert.match(text, /bf-PNN\.zip/);
-    assert.match(text, /DELIVERY BLOCKED/);
-    assert.match(text, /\.patch.*\.diff/s);
-    assert.match(text, /read-back|reopen/i);
-  }
-  assert.match(start, /bf-PNN\.zip/);
+  assert.match(agents, /bf-PNN\.zip/);
+  assert.match(agents, /\.patch.*\.diff|diff-only/i);
+  assert.match(agents, /read-back|reopen/i);
+  assert.match(start, /AGENTS\.md/);
   assert.match(packer, /opt\('out', `bf-\$\{archiveId\}\.zip`\)/);
   assert.match(packer, /readZipTree\(archiveBuffer\)/);
   assert.match(packer, /content mismatch for/);

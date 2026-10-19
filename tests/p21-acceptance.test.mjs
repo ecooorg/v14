@@ -6,8 +6,9 @@ import test from 'node:test';
 
 const root = new URL('..', import.meta.url).pathname.replace(/\/$/, '');
 
-test('P21 docs and sources exist', () => {
-  assert.ok(existsSync(`${root}/docs/P21-SPEC.md`));
+test('review implementation and canonical contract exist', () => {
+  assert.ok(existsSync(`${root}/docs/01-Product-and-System-Specification.md`));
+  assert.ok(existsSync(`${root}/docs/09-Testing-and-Equivalence.md`));
   assert.ok(existsSync(`${root}/server/reviewer.ts`));
   assert.ok(existsSync(`${root}/migrations/012_code_task_decision.sql`));
   const srv = readFileSync(`${root}/server.ts`, 'utf8');

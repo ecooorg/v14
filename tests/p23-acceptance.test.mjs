@@ -107,16 +107,18 @@ test('audit catalog covers TZ §13.5 required event names', () => {
   assert.ok(HUMAN_ONLY_AUDIT_EVENTS.includes('gate.waived'));
 });
 
-test('source documents for threat model and rights review exist', () => {
-  for (const f of ['docs/THREAT_MODEL.md', 'docs/RIGHTS_REVIEW.md', 'docs/SECURITY_POLICY.md', 'docs/P23-SPEC.md']) {
-    assert.ok(fs.existsSync(path.join(root, f)), f);
-    assert.ok(fs.readFileSync(path.join(root, f), 'utf8').length > 200, f);
-  }
+test('consolidated security contract covers threats, rights and secrets', () => {
+  const security = fs.readFileSync(path.join(root, 'docs/07-Security-Privacy-and-Operations.md'), 'utf8');
+  const product = fs.readFileSync(path.join(root, 'docs/01-Product-and-System-Specification.md'), 'utf8');
+  assert.ok(security.length > 1000);
+  assert.match(security, /secret/i);
+  assert.match(security, /merge/i);
+  assert.match(security, /privacy|personal data|rights/i);
+  assert.match(product, /security|untrusted|permission/i);
 });
 
-test('security policy still forbids product merge and secret logging', () => {
-  const pol = fs.readFileSync(path.join(root, 'docs/SECURITY_POLICY.md'), 'utf8');
-  assert.match(pol, /merge/i);
-  assert.match(pol, /secret/i);
-  assert.match(pol, /Never commit|must not appear/i);
+test('security policy forbids product merge and secret logging', () => {
+  const pol = fs.readFileSync(path.join(root, 'docs/07-Security-Privacy-and-Operations.md'), 'utf8');
+  assert.match(pol, /merge.*forbidden|no merge|merge never automated/i);
+  assert.match(pol, /never commit|never.*secrets|secrets.*never/i);
 });
