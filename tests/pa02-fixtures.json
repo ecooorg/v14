@@ -1,0 +1,92 @@
+{
+  "tasks": [
+    {
+      "taskId": "e01-t1",
+      "package": {
+        "agentsMd": "Follow allowed_paths only.",
+        "specMd": "Add src/hello.ts exporting hello().",
+        "acceptanceMd": "Module exports hello as a function.",
+        "executorPromptMd": "Implement src/hello.ts only.",
+        "allowedPaths": ["src/**"],
+        "acceptanceTests": [
+          { "path": "tests/acceptance/hello.test.mjs", "content": "import test from 'node:test';\nimport assert from 'node:assert/strict';\nimport { hello } from '../../src/hello.ts';\ntest('hello', () => assert.equal(typeof hello, 'function'));\n" }
+        ],
+        "contextFiles": [{ "path": "src/placeholder.ts", "content": "// placeholder\n" }]
+      },
+      "modelPatch": {
+        "files": [
+          { "path": "src/hello.ts", "action": "create", "content": "export function hello() { return 'hi'; }\n" }
+        ],
+        "notes": "fixture patch"
+      },
+      "manual": {
+        "applied": true,
+        "ciGreenFirst": true,
+        "fixes": 0,
+        "humanMinutes": 12,
+        "costUsd": 0,
+        "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "ciUrl": "https://github.com/example/test-repo/actions/runs/1",
+        "scriptedHumanStep": true
+      }
+    },
+    {
+      "taskId": "e01-t2",
+      "package": {
+        "agentsMd": "Rules",
+        "specMd": "Modify src/util.ts to add clamp.",
+        "acceptanceMd": "clamp(5,0,3) === 3",
+        "executorPromptMd": "Edit src/util.ts only.",
+        "allowedPaths": ["src/**"],
+        "acceptanceTests": [
+          { "path": "tests/acceptance/util.test.mjs", "content": "import test from 'node:test';\nimport assert from 'node:assert/strict';\nimport { clamp } from '../../src/util.ts';\ntest('clamp', () => assert.equal(clamp(5, 0, 3), 3));\n" }
+        ],
+        "contextFiles": [{ "path": "src/util.ts", "content": "export function identity(x) { return x; }\n" }]
+      },
+      "modelPatch": {
+        "files": [
+          { "path": "src/util.ts", "action": "modify", "content": "export function identity(x) { return x; }\nexport function clamp(n, lo, hi) { return Math.min(hi, Math.max(lo, n)); }\n" }
+        ]
+      },
+      "manual": {
+        "applied": true,
+        "ciGreenFirst": true,
+        "fixes": 1,
+        "humanMinutes": 18,
+        "costUsd": 0,
+        "sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "ciUrl": "https://github.com/example/test-repo/actions/runs/2",
+        "scriptedHumanStep": true
+      }
+    },
+    {
+      "taskId": "e01-t3",
+      "package": {
+        "agentsMd": "Rules",
+        "specMd": "Delete src/obsolete.ts",
+        "acceptanceMd": "File gone",
+        "executorPromptMd": "Delete only.",
+        "allowedPaths": ["src/**"],
+        "acceptanceTests": [
+          { "path": "tests/acceptance/obsolete.test.mjs", "content": "import test from 'node:test';\nimport assert from 'node:assert/strict';\ntest('placeholder', () => assert.ok(true));\n" }
+        ],
+        "contextFiles": [{ "path": "src/obsolete.ts", "content": "export const gone = 1;\n" }]
+      },
+      "modelPatch": {
+        "files": [
+          { "path": "src/obsolete.ts", "action": "delete" }
+        ]
+      },
+      "manual": {
+        "applied": true,
+        "ciGreenFirst": false,
+        "fixes": 2,
+        "humanMinutes": 25,
+        "costUsd": 0,
+        "sha": "cccccccccccccccccccccccccccccccccccccccc",
+        "ciUrl": "https://github.com/example/test-repo/actions/runs/3",
+        "scriptedHumanStep": true
+      }
+    }
+  ]
+}
