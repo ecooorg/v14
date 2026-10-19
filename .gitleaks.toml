@@ -1,0 +1,17 @@
+title = "BiForge gitleaks config"
+
+[extend]
+useDefault = true
+
+# Only known false positives: throwaway CI database password and UI label strings.
+[allowlist]
+description = "Known false positives"
+paths = [
+  '''^\.github/workflows/ci\.yml$''',
+  '''^src/ui\.ts$''',
+  '''^src/i18n/ui\.ts$''',
+  '''^\.env\.example$''',
+  '''^tests/''',
+    '''^src/storage\.ts$''',
+  '''^src/utils/storage\.ts$''',
+]
