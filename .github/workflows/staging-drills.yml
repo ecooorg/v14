@@ -1,0 +1,57 @@
+name: staging-drills
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  staging-drills:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Validate staging URL and run safe probes
+        run: node scripts/staging-drills.mjs --out pa03-evidence.json --summary "$GITHUB_STEP_SUMMARY"
+        env:
+          STAGING_SERVICE_URL: ${{ secrets.STAGING_SERVICE_URL }}
+          STAGING_APP_PASSWORD: ${{ secrets.STAGING_APP_PASSWORD }}
+          STAGING_DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
+          GITHUB_SHA: ${{ github.sha }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_SERVER_URL: ${{ github.server_url }}
+      - name: Check disposable staging database migration inventory
+        env:
+          DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
+          PGSSLMODE: require
+        run: |
+          DB_HOST=$(node -e 'try { console.log(new URL(process.env.DATABASE_URL).hostname) } catch { process.exit(0) }')
+          if [ -z "$DATABASE_URL" ]; then
+            echo '{"ok":false,"live":{"status":"NOT_RUN","reason":"STAGING_DATABASE_URL_missing"}}' > staging-db-check.json
+            echo '## Staging database migration inventory' >> "$GITHUB_STEP_SUMMARY"
+            echo 'NOT_RUN: STAGING_DATABASE_URL is not configured.' >> "$GITHUB_STEP_SUMMARY"
+          elif [[ "$DB_HOST" != *staging* ]]; then
+            echo '{"ok":false,"live":{"status":"NOT_RUN","reason":"database_hostname_must_contain_staging"}}' > staging-db-check.json
+            echo '## Staging database migration inventory' >> "$GITHUB_STEP_SUMMARY"
+            echo 'NOT_RUN: database hostname does not identify a staging database; no connection attempted.' >> "$GITHUB_STEP_SUMMARY"
+          else
+            node scripts/backup-restore-check.mjs --live --json > staging-db-check.json || true
+            node -e 'const fs=require("fs"); const x=JSON.parse(fs.readFileSync("staging-db-check.json","utf8")); console.log("\n## Staging database migration inventory\n\n- Status: **"+(x.ok?"PASS":"FAIL")+"**\n- Migrations on disk: "+x.migrations_on_disk+"\n- Live result: "+JSON.stringify(x.live||null)+"\n- Note: this is not evidence of backup restore.\n")' >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: pa03-evidence
+          path: |
+            pa03-evidence.json
+            staging-db-check.json
+          if-no-files-found: warn
+          retention-days: 30

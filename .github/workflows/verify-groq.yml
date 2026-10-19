@@ -1,0 +1,19 @@
+name: verify-groq
+# Manual run only (P07). Needs repository secret GROQ_API_KEY. No LLM is used; the script never prints secret values.
+on: workflow_dispatch
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npm run verify:connections -- --only groq
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          GROQ_PLAN: free

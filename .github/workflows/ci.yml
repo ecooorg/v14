@@ -1,0 +1,72 @@
+name: ci
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  check-and-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: biforge
+          POSTGRES_PASSWORD: biforge_test_password
+          POSTGRES_DB: biforge_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U biforge -d biforge_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: test -f tests/contracts.test.mjs
+      - name: Install dependencies
+        id: deps
+        run: npm ci
+      - name: Apply migrations to clean PostgreSQL
+        run: npm run db:migrate
+        env:
+          DATABASE_URL: postgres://biforge:biforge_test_password@localhost:5432/biforge_test
+          PGSSLMODE: disable
+      - name: Check (independent stages)
+        if: always() && steps.deps.outcome == 'success'
+        timeout-minutes: 30
+        shell: bash
+        run: set -o pipefail; node scripts/run-independent-checks.mjs 2>&1 | tee ci-check.log
+      - name: Live PostgreSQL contract tests
+        if: always() && steps.deps.outcome == 'success'
+        timeout-minutes: 10
+        shell: bash
+        run: set -o pipefail; npm run test:database:live 2>&1 | tee ci-live.log
+        env:
+          DATABASE_URL: postgres://biforge:biforge_test_password@localhost:5432/biforge_test
+          PGSSLMODE: disable
+      - name: Project Mode API security tests
+        if: always() && steps.deps.outcome == 'success'
+        timeout-minutes: 10
+        shell: bash
+        run: set -o pipefail; npm run test:bx06:api 2>&1 | tee ci-api.log
+        env:
+          DATABASE_URL: postgres://biforge:biforge_test_password@localhost:5432/biforge_test
+          PGSSLMODE: disable
+      - name: Build application
+        if: always() && steps.deps.outcome == 'success'
+        timeout-minutes: 8
+        run: npm run build
+      - name: Scan repository for leaked secrets
+        if: always()
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Result summary
+        if: always()
+        run: node scripts/ci-summary.mjs ci-check.log ci-live.log ci-api.log
+        env:
+          CI_STATUS: ${{ job.status }}

@@ -1,0 +1,36 @@
+# PA-01 — Evidence Bot. Manual run only. Read-only: it checks the live service and the connections, then renders decision cards.
+# It does not commit, push, change settings or write to the service. Secrets are used by name only and never printed.
+name: evidence
+
+on: workflow_dispatch
+
+permissions:
+  contents: read
+
+jobs:
+  evidence:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - name: Collect evidence
+        run: node scripts/evidence-collect.mjs --out evidence.json --summary "$GITHUB_STEP_SUMMARY"
+        env:
+          SERVICE_URL: ${{ vars.SERVICE_URL }}
+          EXPECTED_SHA: ${{ github.sha }}
+          APP_PASSWORD: ${{ secrets.APP_PASSWORD }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          GROQ_PLAN: free
+      - name: Decision cards
+        run: node scripts/gate-eval.mjs --all --input evidence.json >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: evidence
+          path: evidence.json
+          retention-days: 30
