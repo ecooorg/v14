@@ -1,0 +1,558 @@
+{
+ "version": 1,
+ "tasks": [
+  {
+   "id": "A01",
+   "kind": "analysis",
+   "lang": "ru",
+   "title": "Факты и неизвестные из заметки",
+   "task": "Выдели из заметки факты и неизвестные.",
+   "context": "Заказчик — сельская библиотека. Нужен сайт с каталогом (около 4000 книг). Бюджет 150 тыс. руб., срок — до сентября. Хостинг пока не выбран. Кто будет вносить книги — неизвестно.",
+   "mustMention": [
+    "4000",
+    "150"
+   ],
+   "minOps": 3,
+   "reference": {
+    "summary": "Каталог около 4000 книг, бюджет 150 тыс. руб.; хостинг и ответственный за ввод книг не определены.",
+    "patch": {
+     "ops": [
+      {
+       "op": "add",
+       "section": "facts",
+       "item": {
+        "text": "Каталог около 4000 книг",
+        "ref": "msg:1"
+       }
+      },
+      {
+       "op": "add",
+       "section": "facts",
+       "item": {
+        "text": "Бюджет 150 тыс. руб., срок до сентября",
+        "ref": "msg:1"
+       }
+      },
+      {
+       "op": "add",
+       "section": "unknowns",
+       "item": {
+        "text": "Неизвестно, кто будет вносить книги",
+        "ref": "msg:1"
+       }
+      }
+     ]
+    }
+   }
+  },
+  {
+   "id": "A02",
+   "kind": "analysis",
+   "lang": "en",
+   "title": "Facts and risks from a note",
+   "task": "Extract facts and risks from the note.",
+   "context": "The clinic wants an appointment form. Patient data must stay in the EU. The only developer leaves in June. Launch is planned for May.",
+   "mustMention": [
+    "EU",
+    "June"
+   ],
+   "minOps": 3,
+   "reference": {
+    "summary": "Patient data must stay in the EU; the only developer leaves in June, one month after launch.",
+    "patch": {
+     "ops": [
+      {
+       "op": "add",
+       "section": "facts",
+       "item": {
+        "text": "Patient data must stay in the EU",
+        "ref": "msg:1"
+       }
+      },
+      {
+       "op": "add",
+       "section": "facts",
+       "item": {
+        "text": "Launch planned for May",
+        "ref": "msg:1"
+       }
+      },
+      {
+       "op": "add",
+       "section": "risks",
+       "item": {
+        "text": "The only developer leaves in June",
+        "ref": "msg:1"
+       }
+      }
+     ]
+    }
+   }
+  },
+  {
+   "id": "A03",
+   "kind": "analysis",
+   "lang": "ru",
+   "title": "Требования из описания",
+   "task": "Сформулируй требования из описания.",
+   "context": "Приложение для учёта посещений кружка. Преподаватель отмечает присутствующих за 1 минуту. Работает без интернета, синхронизация при подключении. Родители видят только своего ребёнка.",
+   "mustMention": [
+    "без интернета",
+    "родител"
+   ],
+   "minOps": 3,
+   "reference": {
+    "summary": "Три требования: быстрая отметка, офлайн-режим, ограничение доступа родителей.",
+    "patch": {
+     "ops": [
+      {
+       "op": "add",
+       "section": "requirements",
+       "item": {
+        "text": "Отметка присутствующих занимает не более 1 минуты",
+        "ref": "msg:1"
+       }
+      },
+      {
+       "op": "add",
+       "section": "requirements",
+       "item": {
+        "text": "Работа без интернета с последующей синхронизацией",
+        "ref": "msg:1"
+       }
+      },
+      {
+       "op": "add",
+       "section": "requirements",
+       "item": {
+        "text": "Родители видят только своего ребёнка",
+        "ref": "msg:1"
+       }
+      }
+     ]
+    }
+   }
+  },
+  {
+   "id": "A04",
+   "kind": "analysis",
+   "lang": "en",
+   "title": "Hypotheses from symptoms",
+   "task": "Propose hypotheses explaining the data.",
+   "context": "Support tickets doubled after the new onboarding. Churn did not change. The team suspects the setup wizard is unclear.",
+   "mustMention": [
+    "wizard",
+    "tickets"
+   ],
+   "minOps": 2,
+   "reference": {
+    "summary": "Hypothesis: the setup wizard is unclear and drives tickets; churn is unaffected.",
+    "patch": {
+     "ops": [
+      {
+       "op": "add",
+       "section": "hypotheses",
+       "item": {
+        "text": "The setup wizard is unclear and causes the extra tickets",
+        "ref": "msg:1"
+       }
+      },
+      {
+       "op": "add",
+       "section": "facts",
+       "item": {
+        "text": "Support tickets doubled after the new onboarding",
+        "ref": "msg:1"
+       }
+      }
+     ]
+    }
+   }
+  },
+  {
+   "id": "A05",
+   "kind": "analysis",
+   "lang": "ru",
+   "title": "Неизвестные при миграции данных",
+   "task": "Определи неизвестные и риски.",
+   "context": "Нужно перенести данные из старой базы в новую. Формат старой базы не описан, документации нет, автор недоступен.",
+   "mustMention": [
+    "формат",
+    "документац"
+   ],
+   "minOps": 2,
+   "reference": {
+    "summary": "Формат старой базы и документация отсутствуют; автор недоступен.",
+    "patch": {
+     "ops": [
+      {
+       "op": "add",
+       "section": "unknowns",
+       "item": {
+        "text": "Формат старой базы не описан",
+        "ref": "msg:1"
+       }
+      },
+      {
+       "op": "add",
+       "section": "risks",
+       "item": {
+        "text": "Документации нет, автор недоступен",
+        "ref": "msg:1"
+       }
+      }
+     ]
+    }
+   }
+  },
+  {
+   "id": "A06",
+   "kind": "analysis",
+   "lang": "en",
+   "title": "Requirements for report export",
+   "task": "List the requirements stated in the text.",
+   "context": "The tool must export reports as PDF and CSV. Reports are generated for up to 500 rows. Generation must finish within 5 seconds.",
+   "mustMention": [
+    "PDF",
+    "CSV",
+    "5 seconds"
+   ],
+   "minOps": 3,
+   "reference": {
+    "summary": "Export in PDF and CSV, up to 500 rows, within 5 seconds.",
+    "patch": {
+     "ops": [
+      {
+       "op": "add",
+       "section": "requirements",
+       "item": {
+        "text": "Export reports as PDF and CSV",
+        "ref": "msg:1"
+       }
+      },
+      {
+       "op": "add",
+       "section": "requirements",
+       "item": {
+        "text": "Reports of up to 500 rows",
+        "ref": "msg:1"
+       }
+      },
+      {
+       "op": "add",
+       "section": "requirements",
+       "item": {
+        "text": "Generation finishes within 5 seconds",
+        "ref": "msg:1"
+       }
+      }
+     ]
+    }
+   }
+  },
+  {
+   "id": "A07",
+   "kind": "analysis",
+   "lang": "ru",
+   "title": "Риски зависимости",
+   "task": "Выдели риски.",
+   "context": "Платёжный модуль сторонний, договор заканчивается через 2 месяца. Замены нет. Доля платящих пользователей — 90%.",
+   "mustMention": [
+    "2 месяца",
+    "платёж"
+   ],
+   "minOps": 2,
+   "reference": {
+    "summary": "Платёжный модуль сторонний, договор истекает через 2 месяца, замены нет.",
+    "patch": {
+     "ops": [
+      {
+       "op": "add",
+       "section": "risks",
+       "item": {
+        "text": "Договор на платёжный модуль заканчивается через 2 месяца",
+        "ref": "msg:1"
+       }
+      },
+      {
+       "op": "add",
+       "section": "risks",
+       "item": {
+        "text": "Замены платёжному модулю нет",
+        "ref": "msg:1"
+       }
+      }
+     ]
+    }
+   }
+  },
+  {
+   "id": "A08",
+   "kind": "analysis",
+   "lang": "en",
+   "title": "Conflicting sources",
+   "task": "Record the facts and flag the conflict.",
+   "context": "Document A says the API limit is 100 requests per minute. Document B says 1000 per minute. The staging server shows 100.",
+   "mustMention": [
+    "100",
+    "1000"
+   ],
+   "minOps": 2,
+   "reference": {
+    "summary": "Sources conflict: 100 vs 1000 requests per minute; staging shows 100.",
+    "patch": {
+     "ops": [
+      {
+       "op": "add",
+       "section": "facts",
+       "item": {
+        "text": "Document A: limit is 100 requests per minute",
+        "ref": "msg:1"
+       }
+      },
+      {
+       "op": "add",
+       "section": "unknowns",
+       "item": {
+        "text": "Document B says 1000 per minute; conflicts with A",
+        "ref": "msg:1"
+       }
+      }
+     ]
+    }
+   }
+  },
+  {
+   "id": "A09",
+   "kind": "analysis",
+   "lang": "ru",
+   "title": "Ограничения проекта",
+   "task": "Перечисли ограничения проекта.",
+   "context": "Данные пациентов нельзя передавать за пределы страны. Все вызовы моделей — только к self-hosted серверу. Бюджет — 20 тысяч в месяц.",
+   "mustMention": [
+    "за пределы",
+    "self-hosted",
+    "20"
+   ],
+   "minOps": 3,
+   "reference": {
+    "summary": "Данные остаются в стране, модели только self-hosted, бюджет 20 тысяч в месяц.",
+    "patch": {
+     "ops": [
+      {
+       "op": "add",
+       "section": "requirements",
+       "item": {
+        "text": "Данные пациентов нельзя передавать за пределы страны",
+        "ref": "msg:1"
+       }
+      },
+      {
+       "op": "add",
+       "section": "requirements",
+       "item": {
+        "text": "Вызовы моделей только к self-hosted серверу",
+        "ref": "msg:1"
+       }
+      },
+      {
+       "op": "add",
+       "section": "requirements",
+       "item": {
+        "text": "Бюджет 20 тысяч в месяц",
+        "ref": "msg:1"
+       }
+      }
+     ]
+    }
+   }
+  },
+  {
+   "id": "A10",
+   "kind": "analysis",
+   "lang": "en",
+   "title": "Open questions for kickoff",
+   "task": "Propose open questions for the kickoff meeting.",
+   "context": "A mobile app for volunteers. Topics to cover: roles, notifications, offline use.",
+   "mustMention": [
+    "roles",
+    "notifications",
+    "offline"
+   ],
+   "minOps": 3,
+   "reference": {
+    "summary": "Open questions on roles, notifications and offline use.",
+    "patch": {
+     "ops": [
+      {
+       "op": "add",
+       "section": "unknowns",
+       "item": {
+        "text": "Which roles exist and what can each do?",
+        "ref": "msg:1"
+       }
+      },
+      {
+       "op": "add",
+       "section": "unknowns",
+       "item": {
+        "text": "Which events trigger notifications?",
+        "ref": "msg:1"
+       }
+      },
+      {
+       "op": "add",
+       "section": "unknowns",
+       "item": {
+        "text": "Must the app work offline?",
+        "ref": "msg:1"
+       }
+      }
+     ]
+    }
+   }
+  },
+  {
+   "id": "V01",
+   "kind": "verify",
+   "lang": "en",
+   "title": "Contradicting retention period",
+   "criteria": [
+    "Statements must not contradict each other."
+   ],
+   "artifact": "# Export module spec\nThe export runs nightly at 02:00 UTC.\nReports are stored for 30 days.\nEach report is a PDF of at most 5 MB.\nRetention: reports older than 90 days are deleted.\nFailed exports are retried once.",
+   "defects": [
+    {
+     "id": "V01-D1",
+     "line": 5,
+     "severity": "high",
+     "note": "contradicts line 3 (30 days)"
+    }
+   ]
+  },
+  {
+   "id": "V02",
+   "kind": "verify",
+   "lang": "ru",
+   "title": "Ссылка на несуществующее требование",
+   "criteria": [
+    "Все ссылки на требования должны вести к существующим ID."
+   ],
+   "artifact": "# Требования к входу\nREQ-01: Пользователь входит по паролю.\nREQ-02: После 5 неудачных попыток вход блокируется на 15 минут.\nREQ-03: Сессия истекает через 8 часов. См. REQ-07.\nREQ-04: Все попытки входа пишутся в журнал.",
+   "defects": [
+    {
+     "id": "V02-D1",
+     "line": 4,
+     "severity": "medium",
+     "note": "REQ-07 does not exist"
+    }
+   ]
+  },
+  {
+   "id": "V03",
+   "kind": "verify",
+   "lang": "en",
+   "title": "Secret in repository",
+   "criteria": [
+    "No secrets may be stored in the repository."
+   ],
+   "artifact": "# Deployment notes\nThe service reads DATABASE_URL from the environment.\nAPI keys are committed to config/keys.json for convenience.\nLogs must not contain personal data.\nBackups run daily.",
+   "defects": [
+    {
+     "id": "V03-D1",
+     "line": 3,
+     "severity": "high",
+     "note": "secrets committed to the repository"
+    }
+   ]
+  },
+  {
+   "id": "V04",
+   "kind": "verify",
+   "lang": "ru",
+   "title": "Небезопасный план миграции",
+   "criteria": [
+    "План должен быть безопасным: проверка до выката, откат возможен."
+   ],
+   "artifact": "# План миграции\nШаг 1. Сделать резервную копию базы.\nШаг 2. Выполнить миграцию на рабочей базе.\nШаг 3. Проверить результат на тестовой базе.\nШаг 4. Если проверка не пройдена — откат невозможен, пользователи уведомляются.",
+   "defects": [
+    {
+     "id": "V04-D1",
+     "line": 3,
+     "severity": "high",
+     "note": "migration on production before testing"
+    },
+    {
+     "id": "V04-D2",
+     "line": 5,
+     "severity": "high",
+     "note": "no rollback"
+    }
+   ]
+  },
+  {
+   "id": "V05",
+   "kind": "verify",
+   "lang": "en",
+   "title": "Untestable acceptance criteria",
+   "criteria": [
+    "Every acceptance criterion must be objectively testable."
+   ],
+   "artifact": "# Search feature acceptance criteria\nAC-1: Search returns results in under 2 seconds for 10 000 documents.\nAC-2: Search should feel fast and modern.\nAC-3: Results are sorted by relevance score, highest first.\nAC-4: The feature works on all browsers.\nAC-5: Empty queries show an error message.",
+   "defects": [
+    {
+     "id": "V05-D1",
+     "line": 3,
+     "severity": "medium",
+     "note": "not testable"
+    },
+    {
+     "id": "V05-D2",
+     "line": 5,
+     "severity": "medium",
+     "note": "'all browsers' is undefined"
+    }
+   ]
+  },
+  {
+   "id": "V06",
+   "kind": "verify",
+   "lang": "ru",
+   "title": "Ошибка в сумме бюджета",
+   "criteria": [
+    "Арифметика в документе должна быть верной."
+   ],
+   "artifact": "# Бюджет проекта\nРазработка: 120 000 руб.\nТестирование: 30 000 руб.\nИтого: 140 000 руб.\nОплата в два этапа по 50%.",
+   "defects": [
+    {
+     "id": "V06-D1",
+     "line": 4,
+     "severity": "high",
+     "note": "120000 + 30000 = 150000, not 140000"
+    }
+   ]
+  },
+  {
+   "id": "V07",
+   "kind": "verify",
+   "lang": "en",
+   "title": "Clean control: release checklist",
+   "criteria": [
+    "Steps are ordered and safe."
+   ],
+   "artifact": "# Release checklist\n1. Run the full test suite.\n2. Tag the release in Git.\n3. Deploy to staging and check /health.\n4. Deploy to production.\n5. Record the version in the changelog.",
+   "defects": []
+  },
+  {
+   "id": "V08",
+   "kind": "verify",
+   "lang": "ru",
+   "title": "Контроль без дефектов: резервное копирование",
+   "criteria": [
+    "Правила должны быть полными и не противоречить друг другу."
+   ],
+   "artifact": "# Правила резервного копирования\nКопия базы создаётся каждый день в 03:00.\nКопии хранятся 14 дней.\nРаз в месяц копия проверяется восстановлением на тестовом сервере.\nОтветственный — администратор проекта.",
+   "defects": []
+  }
+ ]
+}
