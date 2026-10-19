@@ -5,6 +5,7 @@
  * - Expert Mode: EXPERT_STEP_PREFIX + existing step prompts in server.ts
  * - Project Mode: ANALYST_INSTRUCTION in contextBuilder.ts (project analyst)
  */
+import { ANSWER_TARGET_RULE } from './turnFocus.ts';
 import { V17_LAYER_PROMPT } from './reasoningState.ts';
 import { buildPromptCore } from './promptCore.ts';
 import type { ConversationMode } from './conversationMode.ts';
@@ -228,7 +229,9 @@ export function buildSimpleConversationPrompt(
   productMode: ProductMode = 'Simple',
 ): string {
   const label = (t: string) => (productMode === 'Expert' ? t.replace('BiForge in Simple Mode', 'BiForge in Expert Mode') : t);
-  const userBlock = `User brief and conversation:
+  const userBlock = `${ANSWER_TARGET_RULE}
+
+User brief and conversation:
 ${input}${attachmentsBlock ? `\n\n${attachmentsBlock}` : ''}`;
   const modePart = modeBlock ? `${modeBlock}\n\n` : '';
 
