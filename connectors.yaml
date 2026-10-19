@@ -6,7 +6,7 @@
     "gemini": {
       "required_from": "BX-10.b",
       "service": "Google Gemini API",
-      "env": { "required": ["GEMINI_API_KEY"], "optional": ["GEMINI_API_KEY_FREE", "GEMINI_BASE_URL", "ENABLE_WEB_SEARCH", "WEB_SEARCH_MODE", "WEB_SEARCH_MODEL", "WEB_SEARCH_TIMEOUT_MS"] },
+      "env": { "required": ["GEMINI_API_KEY"], "optional": ["GEMINI_BASE_URL", "ENABLE_WEB_SEARCH", "WEB_SEARCH_MODE", "WEB_SEARCH_MODEL", "WEB_SEARCH_TIMEOUT_MS"] },
       "checks": [
         { "id": "list_models", "method": "GET", "url": "https://generativelanguage.googleapis.com/v1beta/models?pageSize=100", "auth": { "header": "x-goog-api-key", "env": "GEMINI_API_KEY" }, "expect": { "status": 200, "json_has": ["models"] } },
         { "id": "tiny_call", "method": "POST", "url": "https://generativelanguage.googleapis.com/v1beta/models/{MODEL_ID}:generateContent", "auth": { "header": "x-goog-api-key", "env": "GEMINI_API_KEY" }, "expect": { "status": 200, "json_has": ["candidates", "usageMetadata"] } }
