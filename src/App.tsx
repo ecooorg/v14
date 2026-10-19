@@ -1,0 +1,3065 @@
+import React, { Component, ErrorInfo, useEffect, useMemo, useState, useCallback, useRef } from 'react';
+import {
+  AlertCircle, ArrowLeft, ArrowRight, BrainCircuit, Check, CircleHelp,
+  Download, FlaskConical, KeyRound, Lock, Plus, ShieldAlert, Trash2, Upload,
+  Cloud, CloudUpload, History as HistoryIcon, MoreHorizontal, SlidersHorizontal,
+  RotateCcw, FolderOpen,
+} from 'lucide-react';
+import {
+  Decision, emptyDecision, STAGES, LOOPS, Step, Option, ExperimentCard,
+  Hypothesis, NeutralItem, Unknown, uid, computeReviewDates, SCHEMA_VERSION,
+  Level, Door, HumanDecision, JournalEntry,
+} from './decision.ts';
+import {
+  getStoredDecisions, saveDecisions, getActiveDecisionId, setActiveDecisionId,
+  getMigrationReport, getArchived,
+} from './storage.ts';
+import { exportDecisionJson, exportAllJson, downloadBlob, parseImportedJson, parseImportedBackup } from './exportZip.ts';
+import { DISTRESS_MARKERS, SUPPORT_CONTACTS, hasDistressMarker, findDistressInTexts } from './support.ts';
+import { FEATURES } from './config.ts';
+import { exportFileName } from './exportName.ts';
+import { useDrive } from './useDrive.ts';
+import { HistoryPanel } from './HistoryPanel.tsx';
+import { AutoInput, AutoTextarea } from './AutoGrow.tsx';
+import { decisionToDocument } from './decisionDocument.ts';
+import { FilesPanel, CopyButton, MessageExtras, ProgramFilesManager } from './ConversationFiles.tsx';
+import { WorkspacePanel, isFolderPickerSupported, PICK_FOLDER_EVENT } from './WorkspacePanel.tsx';
+import { parseChangeSetFromText } from './workspace/changeSetParse.ts';
+import {
+  Attachment, DocumentSpec, applyAttachmentNotes, attachmentOnlyText, collectAttachments, collectDecisionAttachments,
+  conversationToDocument, fitRequest, historyForRequest,
+} from './attachments.ts';
+import { migrateAttachmentsFromDecisions, exportProgramFilesPayload, importProgramFilesPayload, archiveAgentDocument, archiveAttachment } from './programFiles.ts';
+import { en } from './en.ts';
+import { triage, TRIAGE_OUTCOME_TEXT, TRIAGE_OUTCOME_LABEL } from './triage.ts';
+import { evpi, evpiRange, evpiVerdict, validateEvpiInput } from './evpi.ts';
+import { brierScore } from './brier.ts';
+import { cardChecksum } from './sha256Export.ts';
+import { buildIcs } from './icsBuilder.ts';
+import { detectUiLanguage, installUiLanguage, getStoredUiLanguage } from './ui.ts';
+import { errorFromResponse, localizedException } from './errors.ts';
+import { documentToMarkdown, libraryToDocument, planImport, importReport } from './libraryExport.ts';
+import { saveDocumentToGoogleDocs } from './driveExport.ts';
+import { isDriveConfigured } from './driveClient.ts';
+import { downloadDocument, uploadAttachment } from './attachments.ts';
+import { mirrorUserFile, setMirrorMode } from './driveMirror.ts';
+import { ModeMenu, START_MODE_KEY, type AppMode } from './ModeMenu.tsx';
+import { UserGuideModal } from './UserGuide.tsx';
+import { expertConversationFields } from './expertContext.ts';
+import { briefSections, BRIEF_EMPTY_TEXT } from './briefView.ts';
+
+// --- API helper ---
+async function api(path: string, body: unknown) {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  try {
+    const key = localStorage.getItem('bifurcation_gemini_key_v15') || '';
+    const model = localStorage.getItem('bifurcation_gemini_model_v15') || '';
+    if (key) headers['x-byok-key'] = key;
+    if (model) headers['x-model-preference'] = model;
+  } catch {}
+  const r = await fetch(path, { method: 'POST', headers, body: JSON.stringify(body) });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok || !j.success) {
+    // Preserve the real provider/server reason. AI failures are handled by runApi
+    // as a neutral status message, never by the red global error banner.
+    const detail = j?.details?.upstreamMessage ? ` — ${j.details.upstreamMessage}` : '';
+    const err = errorFromResponse({ ...j, error: `${j.error || `API error ${r.status}`}${detail}` }, getStoredUiLanguage(), `API error ${r.status}`);
+    (err as any).code = j.code;
+    (err as any).status = r.status;
+    throw err;
+  }
+  return j;
+}
+
+const stageIndex = (s: Step) => STAGES.findIndex((x) => x.id === s);
+
+// --- Minimal deployment auth + Google Drive storage (infrastructure only) ---
+async function sessionStatus(): Promise<{authenticated:boolean; required:boolean; projectModeEnabled:boolean}> {
+  const r = await fetch('/api/session', { credentials: 'same-origin' });
+  const j = await r.json();
+  return { authenticated: Boolean(j.authenticated), required: Boolean(j.required), projectModeEnabled: Boolean(j.projectModeEnabled) };
+}
+
+async function loginWithPassword(password: string) {
+  const r = await fetch('/api/login', { method: 'POST', credentials: 'same-origin', headers: {'Content-Type':'application/json'}, body: JSON.stringify({password}) });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok || !j.success) throw new Error(j.error || 'Invalid password');
+}
+
+// --- Error boundary ---
+class ErrorBoundary extends Component<
+  { children: React.ReactNode; label?: string },
+  { error?: Error }
+> {
+  state: { error?: Error } = {};
+  static getDerivedStateFromError(error: Error) {
+    return { error };
+  }
+  componentDidCatch(_e: Error, _i: ErrorInfo) {}
+  render() {
+    if (this.state.error) {
+      return (
+        <div className="panel">
+          <div className="alert error">
+            <AlertCircle size={16} />
+            <span>
+              {this.props.label || 'Screen'} crashed with an error. Saved data was not deleted.
+            </span>
+          </div>
+          <button className="primary" onClick={() => this.setState({ error: undefined })}>
+            Retry
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+// --- Main App ---
+export default function App() {
+  const [decisions, setDecisions] = useState<Decision[]>(() => getStoredDecisions());
+  const [activeId, setActiveId] = useState(() => getActiveDecisionId());
+  const drive = useDrive<Decision>(decisions, setDecisions);
+  const [showHistory, setShowHistory] = useState(false);
+  const [showUserGuide, setShowUserGuide] = useState(false);
+  const historyAvailable = useMemo(() => {
+    try { localStorage.setItem('be_probe', '1'); localStorage.removeItem('be_probe'); return true; } catch { return false; }
+  }, []);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [message, setMessage] = useState('');
+  const [showBrief, setShowBrief] = useState(false);
+  const [showProgramFiles, setShowProgramFiles] = useState(false);
+  const [workspaceAttachments, setWorkspaceAttachments] = useState<{ name: string; kind: string; text: string }[]>([]);
+  const [proposedWorkspaceChangeSet, setProposedWorkspaceChangeSet] = useState<string | null>(null);
+  const [expertMode, setExpertMode] = useState(() => {
+    try { return sessionStorage.getItem(START_MODE_KEY) === 'Expert'; } catch { return false; }
+  });
+  // P55: the Drive folder follows the mode the person is in (BiForge → Simple | Expert).
+  useEffect(() => { setMirrorMode(expertMode ? 'expert' : 'simple'); }, [expertMode]);
+  const [startMode, setStartMode] = useState<'Simple' | 'Expert' | 'Project' | null>(() => {
+    try {
+      const saved = sessionStorage.getItem(START_MODE_KEY);
+      // Returning from /project as Expert must open Expert, not Simple
+      if (sessionStorage.getItem(START_MODE_KEY) === 'Expert') {/* expert restored via saved */}
+      return saved === 'Simple' || saved === 'Expert' || saved === 'Project' ? saved : null;
+    } catch { return null; }
+  });
+  function chooseStartMode(mode: 'Simple' | 'Expert' | 'Project') {
+    if (mode === 'Project' && !projectModeEnabled) return;
+    if (mode === 'Project') {
+      // Project is a separate workspace and is never emulated by the chat UI.
+      const ok = window.confirm(
+        'Open Project workspace?\n\nThis is a separate area from Simple/Expert chat. Your existing dialogues stay on this device; Project uses its own list of projects.\n\nContinue?',
+      );
+      if (!ok) return;
+      try { sessionStorage.setItem(START_MODE_KEY, mode); } catch {}
+      window.location.href = '/project';
+      return;
+    }
+    setExpertMode(mode === 'Expert');
+    setStartMode(mode);
+    try { sessionStorage.setItem(START_MODE_KEY, mode); } catch {}
+  }
+  function resetStartMode() {
+    setStartMode(null);
+    setExpertMode(false);
+    try { sessionStorage.removeItem(START_MODE_KEY); } catch {}
+  }
+  const [migrationReport] = useState(() => getMigrationReport());
+  const [authChecked, setAuthChecked] = useState(false);
+  const [authenticated, setAuthenticated] = useState(false);
+  const [password, setPassword] = useState('');
+  const [authError, setAuthError] = useState('');
+  const [authRequired, setAuthRequired] = useState(false);
+  const [projectModeEnabled, setProjectModeEnabled] = useState(false);
+  const [showGoogleAI, setShowGoogleAI] = useState(false);
+  const [geminiKey, setGeminiKey] = useState(() => { try { return localStorage.getItem('bifurcation_gemini_key_v15') || ''; } catch { return ''; } });
+  const [geminiModel, setGeminiModel] = useState(() => { try { return localStorage.getItem('bifurcation_gemini_model_v15') || 'gemini-3.6-flash'; } catch { return 'gemini-3.6-flash'; } });
+  const [aiHealth, setAiHealth] = useState<any>(null);
+  const [uiLanguage, setUiLanguage] = useState<'en' | 'ru'>('en');
+
+  useEffect(() => {
+    sessionStatus().then(s => { setAuthenticated(s.authenticated); setAuthRequired(s.required); setProjectModeEnabled(s.projectModeEnabled); setAuthChecked(true); }).catch(() => { setAuthChecked(true); setAuthRequired(false); setProjectModeEnabled(false); setAuthenticated(true); });
+  }, []);
+
+  // Project mode is a separate route (/project). A leftover session value of "Project"
+  // on the chat shell must not hide the mode start screen.
+  useEffect(() => {
+    if (startMode !== 'Project') return;
+    setStartMode(null);
+    setExpertMode(false);
+    try { sessionStorage.removeItem(START_MODE_KEY); } catch {}
+  }, [startMode]);
+
+  async function refreshAiHealth() {
+    try { const r = await fetch('/api/health'); const j = await r.json(); setAiHealth(j); } catch { setAiHealth(null); }
+  }
+
+  function openGoogleAI() { setShowGoogleAI(true); void refreshAiHealth(); }
+
+  function saveGoogleAI() {
+    try {
+      if (geminiKey.trim()) localStorage.setItem('bifurcation_gemini_key_v15', geminiKey.trim()); else localStorage.removeItem('bifurcation_gemini_key_v15');
+      localStorage.setItem('bifurcation_gemini_model_v15', geminiModel);
+    } catch {}
+    setShowGoogleAI(false);
+    setMessage('Google AI settings saved.');
+  }
+
+  const active = useMemo(
+    () => decisions.find((d) => d.id === activeId) || decisions[0] || null,
+    [decisions, activeId]
+  );
+
+  // Detect the language from existing conversation content after the active decision is known.
+  useEffect(() => {
+    const existing = (active?.modelSuggestions as any)?.conversation?.find((m: any) => m?.role === 'user')?.content || active?.brief?.decision || '';
+    setUiLanguage(existing ? detectUiLanguage(String(existing)) : 'en');
+  }, [active?.id]);
+
+  useEffect(() => installUiLanguage(uiLanguage), [uiLanguage]);
+
+  useEffect(() => {
+    const onUserLanguage = (event: Event) => {
+      const text = String((event as CustomEvent)?.detail?.text || '').trim();
+      if (text) setUiLanguage(detectUiLanguage(text));
+    };
+    window.addEventListener('be:user-language', onUserLanguage);
+    return () => window.removeEventListener('be:user-language', onUserLanguage);
+  }, []);
+
+  useEffect(() => {
+    saveDecisions(decisions);
+  }, [decisions]);
+
+  // Stage 3: one-shot migration of attachment texts into IndexedDB program files
+  useEffect(() => {
+    void migrateAttachmentsFromDecisions(decisions).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  useEffect(() => {
+    if (active?.id) setActiveDecisionId(active.id);
+  }, [active?.id]);
+
+  const update = useCallback(
+    (patch: Partial<Decision> | ((d: Decision) => Decision)) => {
+      setDecisions((prev) =>
+        prev.map((d) => {
+          if (d.id !== (active?.id || '')) return d;
+          const next = typeof patch === 'function' ? patch(d) : { ...d, ...patch };
+          return { ...next, updatedAt: Date.now() };
+        })
+      );
+    },
+    [active?.id]
+  );
+
+  const reviseConversationDocument = useCallback((messageIndex: number, next: DocumentSpec) => {
+    update((d) => {
+      const history = Array.isArray((d.modelSuggestions as any)?.conversation) ? [...(d.modelSuggestions as any).conversation] : [];
+      const previous = history[messageIndex];
+      if (!previous) return d;
+      const revision = {
+        role: 'assistant',
+        content: 'I updated the document as requested.',
+        document: next,
+        at: Date.now(),
+      };
+      history.push(revision);
+      return { ...d, modelSuggestions: { ...d.modelSuggestions, conversation: history } };
+    });
+  }, [uiLanguage, update]);
+
+  const createNew = () => {
+    const d = emptyDecision();
+    setDecisions((prev) => [d, ...prev]);
+    setActiveId(d.id);
+  };
+
+
+  // B2: export everything (json backup, or one document with every dialogue as a chapter).
+  const exportAll = (fmt: 'json' | 'md' | 'docx' | 'pdf' | 'gdocs') => {
+    if (!decisions.length) { setError('Nothing to export.'); return; }
+    setError('');
+    const base = exportFileName().replace(/\.json$/i, '');
+    if (fmt === 'json') {
+      void exportProgramFilesPayload().then((pf) => downloadBlob(exportAllJson(decisions, pf), exportFileName()));
+      return;
+    }
+    const doc = libraryToDocument(decisions);
+    if (fmt === 'md') { downloadBlob(new Blob([documentToMarkdown(doc)], { type: 'text/markdown' }), `${base}.md`); return; }
+    if (fmt === 'gdocs') {
+      if (!isDriveConfigured()) { setError('Google sign-in is not configured.'); return; }
+      setMessage('Saving to Google Docs…');
+      saveDocumentToGoogleDocs(doc, true, getStoredUiLanguage())   // called straight from the click: the sign-in popup needs it
+        .then((saved) => setMessage(`Saved to Google Drive. ${saved.link}`))
+        .catch((e: any) => { setMessage(''); setError(e?.message || 'Save failed.'); });
+      return;
+    }
+    setMessage('Preparing…');
+    downloadDocument(doc, fmt, true, getStoredUiLanguage())
+      .then(() => setMessage(fmt === 'docx' ? 'Saved as Word.' : 'Saved as PDF.'))
+      .catch((e: any) => { setMessage(''); setError(e?.message || 'Save failed.'); });
+  };
+
+  // B3/B4: import a backup; merge by id (newer wins, nothing removed), show a report.
+  const importBackup = (file: File) => {
+        const reader = new FileReader();
+    reader.onload = () => {
+      void (async () => {
+        try {
+          const backup = parseImportedBackup(String(reader.result));
+          const plan = planImport(decisions, backup.decisions);
+          if (plan.conflicts.length) {
+            const list = plan.conflicts.slice(0, 5).join(', ') + (plan.conflicts.length > 5 ? '…' : '');
+            const ask = `${plan.conflicts.length} dialogue(s) have a newer local version than the file (${list}). They will be kept as they are. Continue the import?`;
+            if (!confirm(ask)) return;
+          }
+          await importProgramFilesPayload(backup.programFiles);
+          setDecisions((prev) => planImport(prev, backup.decisions).merged);
+          setMessage(importReport(plan));
+        } catch (e: any) {
+          setError(e.message);
+        }
+      })();
+    };
+    reader.readAsText(file);
+  };
+
+  // B3: a txt / docx / pdf file becomes the first material of a new dialogue.
+  const importAsDialog = (file: File) => {
+    setError(''); setMessage('Preparing…');
+    uploadAttachment(file, getStoredUiLanguage())
+      .then((att) => {
+        const d = emptyDecision();
+        const now = Date.now();
+        d.title = att.name.replace(/\.[^.]+$/, '').slice(0, 80) || d.title;
+        d.modelSuggestions = { ...(d.modelSuggestions as any), conversation: [{ role: 'user', content: `Attached: ${att.name}`, attachments: [att], at: now }] } as any;
+        void archiveAttachment(att, d.id);
+        void mirrorUserFile(file);
+        setDecisions((prev) => [d, ...prev]);
+        setActiveId(d.id);
+        setMessage('');
+      })
+      .catch((e: any) => { setMessage(''); setError(localizedException(e, getStoredUiLanguage(), 'The upload failed.')); });
+  };
+
+  const removeDecision = (id: string) => {
+    if (!confirm('Delete this decision?')) return;
+    setDecisions((prev) => prev.filter((d) => d.id !== id));
+    if (activeId === id) setActiveId('');
+  };
+
+  const runApi = async (path: string, body: unknown, onOk: (data: any, meta: any) => void) => {
+    setBusy(true);
+    setError('');
+    setMessage('');
+    try {
+      // B1: every expert request carries the decision's files (both sources, images as their saved description only).
+      let sendBody = body;
+      if (body && typeof body === 'object') {
+        const cur = decisions.find((x) => x.id === activeId) || decisions[0];
+        const existing = Array.isArray((body as any).attachments) ? (body as any).attachments : [];
+        const decisionFiles = path !== '/api/conversation' && !existing.length && cur
+          ? collectDecisionAttachments(cur, undefined, true)
+          : [];
+        const combined = [...existing, ...workspaceAttachments, ...decisionFiles];
+        if (combined.length) sendBody = fitRequest({ ...(body as any), attachments: combined });
+      }
+      const j = await api(path, sendBody);
+      onOk(j.data, j.meta);
+    } catch (e: any) {
+      // Provider/API failures are operational states, not application crashes.
+      // Keep the user informed without showing the red error banner.
+      setMessage(e.message || 'The AI service is temporarily unavailable. Your text is safe.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // --- Deployment password gate ---
+  if (!authChecked) {
+    return <div className="shell"><div className="empty"><h1>{en.app}</h1><p>Loading…</p></div></div>;
+  }
+  if (authRequired && !authenticated) {
+    return (
+      <div className="shell"><div className="empty">
+        <h1>{en.app}</h1><p>{en.subtitle}</p>
+        <div className="panel" style={{maxWidth:560,textAlign:'left'}}>
+          <h2>Sign in</h2><p>Enter the password to open this app.</p>
+          <input aria-label="Sign in" className="input credential-input" type="password" value={password} placeholder="Password" onChange={e=>setPassword(e.target.value)} onKeyDown={e=>{if(e.key==='Enter') void (async()=>{try{setAuthError('');await loginWithPassword(password);setAuthenticated(true);}catch(err:any){setAuthError(err.message||'Invalid password')}})()}} />
+          {authError && <p className="alert error">{authError}</p>}
+          <button className="primary" style={{marginTop:16}} onClick={()=>void (async()=>{try{setAuthError('');await loginWithPassword(password);setAuthenticated(true);}catch(err:any){setAuthError(err.message||'Invalid password')}})()}>Sign in</button>
+        </div>
+      </div></div>
+    );
+  }
+
+  if (!startMode && !showGoogleAI) {
+    return (
+      <div className="shell">
+        <div className="empty" style={{ maxWidth: 1040, margin: '0 auto', padding: '48px 20px' }}>
+          <h1>{en.app}</h1>
+          <p>Choose how you want to work. You can change modes later with the <strong>Mode</strong> button.</p>
+          <div className="mode-start-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 16, marginTop: 28, textAlign: 'left' }}>
+            <button type="button" className="panel" data-testid="start-mode-simple" onClick={() => chooseStartMode('Simple')} style={{ cursor: 'pointer', color: 'inherit', textAlign: 'left', padding: 24 }}>
+              <h2>Simple</h2>
+              <p style={{ color: '#9fd8ff', marginBottom: 8 }}>Open conversation — no required steps</p>
+              <p>Get an explanation, practical advice, or a clear answer. Optional detail fields when you want them.</p>
+              <p style={{ fontSize: 13, color: '#8fa6c2', marginBottom: 0 }}><em>Best for:</em> everyday questions and light structure.</p>
+            </button>
+            <button type="button" className="panel" data-testid="start-mode-expert" onClick={() => chooseStartMode('Expert')} style={{ cursor: 'pointer', color: 'inherit', textAlign: 'left', padding: 24 }}>
+              <h2>Expert</h2>
+              <p style={{ color: '#9fd8ff', marginBottom: 8 }}>Step-by-step decision method</p>
+              <p>Understand → Explore → Challenge → Check → Learn. You confirm suggestions; open chat stays available for clarifications.</p>
+              <p style={{ fontSize: 13, color: '#8fa6c2', marginBottom: 0 }}><em>Best for:</em> hard choices where a careful process helps.</p>
+            </button>
+            <button type="button" className="panel" data-testid="start-mode-project" onClick={() => chooseStartMode('Project')} disabled={!projectModeEnabled} aria-disabled={!projectModeEnabled} style={{ cursor: projectModeEnabled ? 'pointer' : 'not-allowed', color: 'inherit', textAlign: 'left', padding: 24, opacity: projectModeEnabled ? 1 : 0.65 }}>
+              <h2>Project</h2>
+              <p style={{ color: '#9fd8ff', marginBottom: 8 }}>Managed project workspace</p>
+              <p>Description, analysis, plans, tasks, files, and optional code hand-off. Separate from chat; durable project state.</p>
+              {!projectModeEnabled
+                ? <p role="status" style={{ marginBottom: 0 }}><strong>Currently unavailable</strong> — Project mode is disabled for this deployment by an administrator (not an error in your browser).</p>
+                : <p style={{ fontSize: 13, color: '#8fa6c2', marginBottom: 0 }}><em>Best for:</em> multi-step work with confirmations and deliverables.</p>}
+            </button>
+          </div>
+          <p style={{ marginTop: 20, fontSize: 13, color: '#8fa6c2' }}>Tip: open <strong>More → User guide</strong> anytime for the full manual.</p>
+        </div>
+      </div>
+    );
+  }
+
+  // --- Privacy / about gate ---
+  // Welcome / privacy gate removed — open workspace right after sign-in.
+
+  if (showGoogleAI) {
+    return (
+      <div className="shell">
+        <div className="empty">
+          <div className="panel" style={{ maxWidth: 620, textAlign: 'left' }}>
+            <h2><KeyRound size={18} /> Google AI</h2>
+            <p style={{ color: '#8ea2b8' }}>
+              Optional: use your own Gemini API key only if you want to use your own quota. You can skip this — the app works with the server key when configured.</p>
+            <p style={{ color: '#8ea2b8', fontSize: 13 }}>
+              Your key is stored only in this browser and is sent to this app's server with each request so it can call Google on your behalf. The server does not save it and does not write it to logs.
+            </p>
+            <label style={{ display: 'block', marginTop: 16 }}>Your Google AI key (optional)</label>
+            <input aria-label="Gemini API key" className="input credential-input" type="password" value={geminiKey} onChange={e => setGeminiKey(e.target.value)} placeholder="AIza..." style={{ width: '100%', marginTop: 8 }} />
+            <label style={{ display: 'block', marginTop: 16 }}>Preferred model</label>
+            <select aria-label="Preferred first model" className="input credential-input" value={geminiModel} onChange={e => setGeminiModel(e.target.value)} style={{ width: '100%', marginTop: 8 }}>
+              <option value="gemini-3.6-flash">Gemini 3.6 Flash</option>
+              <option value="gemini-3.5-flash">Gemini 3.5 Flash</option>
+              <option value="gemini-3.5-flash-lite">Gemini 3.5 Flash Lite</option>
+              <option value="gemini-3.1-flash-lite">Gemini 3.1 Flash Lite</option>
+              <option value="gemini-flash-latest">Gemini Flash Latest</option>
+              <option value="gemini-3.8-flash">Gemini 3.8 Flash</option>
+            </select>
+            <p style={{ fontSize: 12, color: '#7f93aa', marginTop: 10 }}>
+              If the preferred model is busy, the app tries others automatically.
+            </p>
+            {aiHealth && (
+              <div className="alert" style={{ marginTop: 14 }}>
+                Server has a key: <b>{aiHealth.hasKey ? 'configured' : 'not configured'}</b><br />
+                Fallback order: {(aiHealth.strongModels || []).join(' → ')}
+              </div>
+            )}
+            <div className="actions" style={{ marginTop: 16 }}>
+              <button className="primary" onClick={saveGoogleAI}>Save</button>
+              <button className="ghost" onClick={() => setShowGoogleAI(false)}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const historyPanel = showHistory ? (
+    <HistoryPanel items={decisions} activeId={active?.id || ''} isOnDrive={drive.isOnDrive}
+      onSelect={(id) => { setActiveId(id); setShowHistory(false); }} onClose={() => setShowHistory(false)} />
+  ) : null;
+
+  if (!active) {
+    return (
+      <div className="shell">
+      <UserGuideModal open={showUserGuide} onClose={() => setShowUserGuide(false)} />
+        {historyPanel}
+        <Header
+          onNew={createNew}
+          onExportAll={exportAll}
+          onDrive={drive.onButton}
+          onGoogleAI={openGoogleAI}
+          onProgramFiles={() => setShowProgramFiles(true)}
+          driveConnected={drive.connected}
+          driveBusy={drive.busy}
+          driveMessage={drive.message}
+        onHistory={() => setShowHistory(true)}
+        historyAvailable={historyAvailable}
+        projectModeEnabled={projectModeEnabled}
+        expertMode={expertMode}
+        onSelectMode={chooseStartMode}
+        onChangeMode={resetStartMode}
+        onImport={importBackup}
+        onImportAsDialog={importAsDialog}
+        onImportDrive={drive.onButton}
+        onUserGuide={() => setShowUserGuide(true)}
+        />
+        <div className="empty">
+          <h1>Nothing here yet</h1>
+          <p>Describe the situation in your own words — you do not need to structure it first.</p>
+          <div style={{ maxWidth: 760, margin: '18px auto', textAlign: 'left' }}>
+            <WorkspacePanel onAttachmentsChange={setWorkspaceAttachments} proposedChangeSet={proposedWorkspaceChangeSet} onChangeSetSettled={() => setProposedWorkspaceChangeSet(null)} />
+          </div>
+          <button className="primary" onClick={createNew}>
+            <Plus size={16} /> New decision
+          </button>
+          {migrationReport.length > 0 && (
+            <div className="panel" style={{ marginTop: 20, textAlign: 'left', maxWidth: 500 }}>
+              <h3>Migration report</h3>
+              <ul>
+                {migrationReport.map((r, i) => (
+                  <li key={i}>{r}</li>
+                ))}
+              </ul>
+              {getArchived() && (
+                <button
+                  className="ghost"
+                  onClick={() => {
+                    const blob = new Blob([getArchived() || ''], { type: 'application/json' });
+                    downloadBlob(blob, 'archive_v5_v6.json');
+                  }}
+                >
+                  Download archive of old data
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  const d = active;
+  const si = stageIndex(d.step);
+  const stageMeta = STAGES[si] || STAGES[0];
+
+  return (
+    <div className="shell">
+      <UserGuideModal open={showUserGuide} onClose={() => setShowUserGuide(false)} />
+      {historyPanel}
+      <Header
+        onNew={createNew}
+        onExport={() =>
+          downloadBlob(exportDecisionJson(d), `${d.title.slice(0, 40) || d.id}.json`)
+        }
+        onExportAll={exportAll}
+        onDrive={drive.onButton}
+        onGoogleAI={openGoogleAI}
+          onProgramFiles={() => setShowProgramFiles(true)}
+          driveConnected={drive.connected}
+        driveBusy={drive.busy}
+        driveMessage={drive.message}
+        onHistory={() => setShowHistory(true)}
+        historyAvailable={historyAvailable}
+        projectModeEnabled={projectModeEnabled}
+        onImport={importBackup}
+        onImportAsDialog={importAsDialog}
+        onImportDrive={drive.onButton}
+        onBrief={() => {
+          if (isBriefWorthShowing(d)) {
+            setShowBrief(true);
+            return;
+          }
+          // Analysis is already in the chat — do not cover it with an empty frame.
+          setMessage('Decision brief fills in as you complete Expert steps (facts, options, your decision). The analysis is already in the conversation on this screen — no extra window needed.');
+          window.setTimeout(() => setMessage(''), 6000);
+        }}
+        onDelete={() => removeDecision(d.id)}
+        expertMode={expertMode}
+        onSelectMode={chooseStartMode}
+        onChangeMode={resetStartMode}
+        onUserGuide={() => setShowUserGuide(true)}
+      />
+      <div className={`layout ${expertMode ? '' : 'friendly-layout'}`}>
+        {expertMode && <aside className="sidebar method-sidebar">
+          <div className="brand">
+            <BrainCircuit size={14} /> Decision method · cycle {d.cycleCount}
+          </div>
+          <div className="method-loop-list">
+            {LOOPS.map((l, i) => {
+              const current = l.steps.includes(d.step);
+              const completed = l.steps.every((step) => stageIndex(step) < si);
+              return (
+                <div key={l.id} className={`method-loop ${current ? 'current' : ''} ${completed ? 'done' : ''}`}>
+                  <span className="method-loop-number">{completed ? '✓' : i + 1}</span>
+                  <div>
+                    <b>{l.label}</b>
+                    <small>{current ? 'You are here' : completed ? 'Completed' : 'Next'}</small>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          <div className="method-sidebar-help">
+            <b className="ui-label">How to use this</b>
+            <span>Work through the highlighted step, then use the chat below anytime to clarify or add facts. Stages guide you — they do not end the conversation.</span>
+          </div>
+          <div className="method-detail-stages">
+            <div className="method-detail-title">Detailed steps</div>
+            {STAGES.filter((s) => s.id !== 'TRIAGE').map((s, i) => {
+              const stageNo = i + 1;
+              const stageNoCurrent = d.step === s.id;
+              const stageDone = stageIndex(s.id) < si;
+              return (
+                <button
+                  key={s.id}
+                  className={`stage ${stageNoCurrent ? 'current' : ''} ${stageDone ? 'done' : ''}`}
+                  disabled={stageIndex(s.id) > si}
+                  onClick={() => {
+                    if (stageIndex(s.id) <= si) update({ step: s.id });
+                  }}
+                >
+                  <span>{stageDone ? '✓' : stageNo}</span>
+                  <div>
+                    <b>{s.label}</b>
+                    <small>{s.loop}</small>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+          <div className="sidebar-note">
+            {en.formula}
+            <br />
+            <br />
+            Your decision:{' '}
+            {d.decision ? 'recorded' : 'not yet'}
+          </div>
+        </aside>}
+
+        <main className="content">
+          <WorkspacePanel disabled={busy} onAttachmentsChange={setWorkspaceAttachments} proposedChangeSet={proposedWorkspaceChangeSet} onChangeSetSettled={() => setProposedWorkspaceChangeSet(null)} />
+          <div className="files-panel-status" data-testid="mode-banner" style={{ marginBottom: 8 }}>
+            {expertMode
+              ? 'Mode: Expert method — guided steps plus open chat below for clarifications.'
+              : 'Mode: Simple chat — open conversation. Use the Mode control for a step-by-step decision review.'}
+          </div>
+          {expertMode && ((d.modelSuggestions as any)?.conversation?.length ?? 0) > 0 && (
+            <SharedConversationContext d={d} onDocumentEdit={reviseConversationDocument} />
+          )}
+
+          {error && (
+            <div className="alert error">
+              <AlertCircle size={16} /> {error}
+              <button className="ghost" onClick={() => setError('')}>
+                ×
+              </button>
+            </div>
+          )}
+          {message && (
+            <div className="alert">
+              <Check size={16} /> {message}
+              <button className="ghost" onClick={() => setMessage('')}>
+                ×
+              </button>
+            </div>
+          )}
+
+          <ErrorBoundary label={stageMeta.label}>
+            {!expertMode && d.step !== 'BRIEF' ? (
+              <ConversationScreen d={d} update={update} runApi={runApi} busy={busy} onDocumentEdit={reviseConversationDocument} onProposedChangeSet={setProposedWorkspaceChangeSet} />
+            ) : (
+              <>
+                {d.step === 'TRIAGE' && (
+                  <TriageScreen d={d} update={update} onContinue={() => update({ step: 'BRIEF' })} />
+                )}
+                {d.step === 'BRIEF' && <BriefScreen d={d} update={update} runApi={runApi} busy={busy} onProposedChangeSet={setProposedWorkspaceChangeSet} expert={expertMode} />}
+                {expertMode && d.step === 'UNDERSTAND' && <UnderstandScreen d={d} update={update} runApi={runApi} busy={busy} />}
+                {expertMode && d.step === 'EXPAND' && <ExpandScreen d={d} update={update} runApi={runApi} busy={busy} />}
+                {expertMode && d.step === 'ATTACK' && <AttackScreen d={d} update={update} runApi={runApi} busy={busy} />}
+                {expertMode && d.step === 'TEST' && <TestScreen d={d} update={update} runApi={runApi} busy={busy} />}
+                {expertMode && d.step === 'DECIDE' && <DecideScreen d={d} update={update} runApi={runApi} />}
+                {expertMode && d.step === 'SYNTHESIS' && <SynthesisScreen d={d} update={update} runApi={runApi} busy={busy} />}
+                {expertMode && d.step === 'LEARN' && <LearnScreen d={d} update={update} runApi={runApi} onNextCycle={() => {
+                  const next = emptyDecision();
+                  next.parentCycleId = d.id;
+                  next.cycleCount = (d.cycleCount || 1) + 1;
+                  next.title = `${d.title || 'Decision'} · cycle ${next.cycleCount}`;
+                  next.brief = { ...emptyDecision().brief, decision: d.brief.decision, goal: d.brief.goal, facts: [...(d.brief.facts || [])], values: [...(d.brief.values || [])], myOptions: [...(d.brief.myOptions || [])], constraints: [...(d.brief.constraints || [])] };
+                  next.journal = d.journal.map((j) => ({ ...j }));
+                  setDecisions((prev) => [next, ...prev]);
+                  setActiveId(next.id);
+                  setActiveDecisionId(next.id);
+                }} />}
+                {expertMode && d.step !== 'TRIAGE' && d.step !== 'BRIEF' && (
+                  <div className="expert-open-dialogue" data-testid="expert-open-dialogue" style={{ marginTop: 20, paddingTop: 12, borderTop: '1px solid rgba(127,180,255,0.2)' }}>
+                    <div className="files-panel-status" style={{ marginBottom: 10 }}>
+                      <strong>Ask or clarify anytime</strong>
+                      {' '}— the steps above are a guide; this chat stays open for new facts, corrections, and questions.
+                    </div>
+                    <ConversationScreen
+                      d={d}
+                      update={update}
+                      runApi={runApi}
+                      busy={busy}
+                      onDocumentEdit={reviseConversationDocument}
+                      onProposedChangeSet={setProposedWorkspaceChangeSet}
+                      alwaysShowComposer
+                      expert
+                    />
+                  </div>
+                )}
+              </>
+            )}
+          </ErrorBoundary>
+          {expertMode && d.step !== 'BRIEF' && (
+            <FilesPanel
+              files={Array.isArray(d.files) ? d.files : []}
+              onFilesChange={(f) => update({ files: f })}
+              disabled={busy}
+              expertMode
+              title={d.title}
+              history={Array.isArray((d.modelSuggestions as any)?.conversation) ? (d.modelSuggestions as any).conversation : []}
+              canCalendar={Array.isArray(d.brief?.reviewDates) && d.brief.reviewDates.length > 0}
+              onCalendar={() => icsDownload(d)}
+              buildFullReview={() => decisionToDocument(d)}
+            />
+          )}
+        </main>
+      </div>
+
+      {showProgramFiles && (
+        <ProgramFilesManager open={showProgramFiles} onClose={() => setShowProgramFiles(false)} />
+      )}
+      {showBrief && (
+        <BriefPanel d={d} onClose={() => setShowBrief(false)} />
+      )}
+    </div>
+  );
+}
+
+function MethodGuide({ step, stageMeta, busy }: { step: Step; stageMeta: typeof STAGES[number]; busy: boolean }) {
+  const currentLoopIndex = Math.max(0, LOOPS.findIndex((l) => l.steps.includes(step)));
+  return (
+    <div className="method-guide" style={{ padding: '14px 18px', marginBottom: 16 }}>
+      <div className="method-guide-head" style={{ alignItems: 'center' }}>
+        <div style={{ minWidth: 0 }}>
+          <div className="eyebrow">ANALYSIS</div>
+          <h1 style={{ marginBottom: 4 }}>Your decision, step by step</h1>
+          <p style={{ margin: 0 }}>The analysis below is built from your conversation and the information already found.</p>
+        </div>
+        {busy && <div className="method-busy"><div className="spinner" /> Working…</div>}
+      </div>
+      <div className="method-stepper" aria-label="Expert analysis progress" style={{ marginTop: 12 }}>
+        {LOOPS.map((loop, i) => {
+          const active = i === currentLoopIndex;
+          const done = i < currentLoopIndex;
+          return (
+            <div key={loop.id} className={`method-step ${active ? 'active' : ''} ${done ? 'done' : ''}`}>
+              <span>{done ? '✓' : i + 1}</span>
+              <b>{loop.label}</b>
+            </div>
+          );
+        })}
+      </div>
+      <div className="method-current" style={{ marginTop: 10, padding: '10px 12px' }}>
+        <div>
+          <span className="method-current-label">NOW</span>
+          <strong>{stageMeta.label}</strong>
+        </div>
+        <div className="method-current-count">{currentLoopIndex + 1} / {LOOPS.length}</div>
+      </div>
+      <div style={{ marginTop: 10, fontSize: 13, lineHeight: 1.5, color: '#c5d4e8' }}>
+        <strong>What this step is for:</strong> {stageMeta.human}
+        {stageMeta.model && stageMeta.model !== 'Not used yet' ? (
+          <span> · <strong>Model helps with:</strong> {stageMeta.model}</span>
+        ) : null}
+      </div>
+      <p style={{ margin: '8px 0 0', fontSize: 12, color: '#8fa6c2' }}>
+        Progress when you are ready — nothing advances automatically. Open chat below is for clarifications only.
+      </p>
+    </div>
+  );
+}
+
+// --- Header ---
+function Header(props: {
+  onNew: () => void;
+  onExport?: () => void;
+  onExportAll: (fmt: 'json' | 'md' | 'docx' | 'pdf' | 'gdocs') => void;
+  onImport: (f: File) => void;
+  onImportAsDialog?: (f: File) => void;
+  onImportDrive?: () => void;
+  onBrief?: () => void;
+  onDelete?: () => void;
+  expertMode?: boolean;
+  onToggleExpert?: () => void;
+  onChangeMode?: () => void;
+  onSelectMode?: (mode: AppMode) => void;
+  onDrive?: () => void;
+  driveConnected?: boolean;
+  driveBusy?: boolean;
+  driveMessage?: string;
+  onGoogleAI?: () => void;
+  onProgramFiles?: () => void;
+  onHistory?: () => void;
+  historyAvailable?: boolean;
+  projectModeEnabled?: boolean;
+  onUserGuide?: () => void;
+}) {
+  const [moreOpen, setMoreOpen] = useState(false);
+  const [sub, setSub] = useState<'' | 'export' | 'import'>('');
+  const moreRef = useRef<HTMLDivElement>(null);
+  // Cloud is a sync status indicator only; actions live under More → Import / Export all.
+  const driveLabel = props.driveBusy ? 'Syncing…' : props.driveConnected ? 'Drive · this tab' : 'Drive';
+  React.useEffect(() => {
+    if (!moreOpen) return;
+    const onDoc = (e: MouseEvent) => {
+      if (moreRef.current && !moreRef.current.contains(e.target as Node)) setMoreOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setMoreOpen(false); };
+    document.addEventListener('mousedown', onDoc);
+    document.addEventListener('touchstart', onDoc as unknown as EventListener, { passive: true });
+    document.addEventListener('keydown', onKey);
+    return () => { document.removeEventListener('mousedown', onDoc); document.removeEventListener('touchstart', onDoc as unknown as EventListener); document.removeEventListener('keydown', onKey); };
+  }, [moreOpen]);
+  return (
+    <header className="header" style={{ justifyContent: 'flex-end' }}>
+      <div className="header-actions has-mode">
+        {props.onSelectMode && props.onChangeMode && (
+          <ModeMenu current={props.expertMode ? 'Expert' : 'Simple'} projectEnabled={Boolean(props.projectModeEnabled)} onSelect={props.onSelectMode} onOverview={props.onChangeMode} />
+        )}
+        <button className="ghost" onClick={props.onNew} title="Start a new dialogue"><Plus size={14} /> <span className="lbl">New</span></button>
+        {props.onDrive && (
+          <button className="ghost" onClick={props.onDrive} disabled={props.driveBusy} title={props.driveConnected ? "Google Drive connected: files mirror only while this tab is open (not in the background)" : "Connect Google Drive — mirroring works only while this tab stays open"}>
+            {props.driveConnected ? <CloudUpload size={14} /> : <Cloud size={14} />} <span className="lbl">{driveLabel}</span>
+          </button>
+        )}
+        {props.onHistory && (
+          props.historyAvailable === false
+            ? <button className="ghost" disabled title="Private or restricted mode: this browser cannot save history on the device"><HistoryIcon size={14} /> <span className="lbl">History unavailable</span></button>
+            : <button className="ghost" onClick={props.onHistory} title="Open past dialogues on this device"><HistoryIcon size={14} /> <span className="lbl">History</span></button>
+        )}
+        {props.expertMode && props.onBrief && (
+          <button className="ghost" onClick={props.onBrief} title="Short overview of this decision">
+            <SlidersHorizontal size={14} /> <span className="lbl">Decision brief</span>
+          </button>
+        )}
+        <div className="hdr-more-wrap" ref={moreRef}>
+          <button className="ghost hdr-more-btn" title="Export, import, Project workspace, API key, and other tools" aria-expanded={moreOpen} onClick={() => setMoreOpen((v) => !v)}>
+            <MoreHorizontal size={14} /> <span className="lbl">More</span>
+          </button>
+          {/* Unified More menu (same order in both modes; Brief / Delete only in expert) */}
+          <div className={`hdr-secondary${moreOpen ? ' open' : ''}`} role="menu">
+            <button type="button" className="ghost" role="menuitem" aria-expanded={sub === 'export'} onClick={() => setSub(sub === 'export' ? '' : 'export')}>
+              <Download size={14} /> Export all ▸
+            </button>
+            {sub === 'export' && (
+              <div className="hdr-sub" role="menu">
+                {([['json', 'Backup (.json)'], ['md', 'Readable text (.md)'], ['docx', 'Word'], ['pdf', 'PDF'], ['gdocs', 'Google Docs']] as const).map(([f, label]) => (
+                  <button key={f} type="button" className="ghost" role="menuitem" onClick={() => { setMoreOpen(false); setSub(''); props.onExportAll(f); }}>{label}</button>
+                ))}
+              </div>
+            )}
+            <button type="button" className="ghost" role="menuitem" aria-expanded={sub === 'import'} onClick={() => setSub(sub === 'import' ? '' : 'import')}>
+              <Upload size={14} /> Import ▸
+            </button>
+            {sub === 'import' && (
+              <div className="hdr-sub" role="menu">
+                <label className="ghost" style={{ cursor: 'pointer' }} role="menuitem">
+                  From backup (.json)
+                  <input type="file" accept="application/json,.json" hidden onChange={(e) => {
+                    const f = e.target.files?.[0]; e.target.value = '';
+                    if (f) { props.onImport(f); setMoreOpen(false); setSub(''); }
+                  }} />
+                </label>
+                {isFolderPickerSupported() && (
+                  <button type="button" className="ghost" role="menuitem" onClick={() => { setMoreOpen(false); setSub(''); window.dispatchEvent(new CustomEvent(PICK_FOLDER_EVENT)); }} title="Load a whole project folder from this computer so the assistant can read it (desktop browsers only)">
+                    <FolderOpen size={14} /> Project folder (desktop)
+                  </button>
+                )}
+                {props.onImportDrive && (
+                  <button type="button" className="ghost" role="menuitem" onClick={() => { setMoreOpen(false); setSub(''); props.onImportDrive?.(); }}>From Google Drive</button>
+                )}
+                {props.onImportAsDialog && (
+                  <label className="ghost" style={{ cursor: 'pointer' }} role="menuitem">
+                    From a file as a new dialogue
+                    <input type="file" accept=".txt,.docx,.pdf,text/plain,application/pdf" hidden onChange={(e) => {
+                      const f = e.target.files?.[0]; e.target.value = '';
+                      if (f) { props.onImportAsDialog?.(f); setMoreOpen(false); setSub(''); }
+                    }} />
+                  </label>
+                )}
+              </div>
+            )}
+            {props.onProgramFiles && (
+              <button type="button" className="ghost" role="menuitem" onClick={() => { setMoreOpen(false); props.onProgramFiles?.(); }} title="Texts saved from chats on this device">
+                Saved texts on this device
+              </button>
+            )}
+            {props.onGoogleAI && (
+              <button type="button" className="ghost" role="menuitem" onClick={() => { setMoreOpen(false); props.onGoogleAI?.(); }} title="Optional: use your own Gemini API key">
+                <KeyRound size={14} /> Your Gemini API key
+              </button>
+            )}
+            {props.onUserGuide && (
+              <button type="button" className="ghost" role="menuitem" onClick={() => { setMoreOpen(false); props.onUserGuide?.(); }} title="Open the BiForge user guide">
+                <CircleHelp size={14} /> User guide
+              </button>
+            )}
+            {props.expertMode && props.onBrief && (
+              <button type="button" className="ghost" role="menuitem" onClick={() => { setMoreOpen(false); props.onBrief?.(); }} title="Short overview of this decision">Decision brief</button>
+            )}
+            {props.expertMode && props.onDelete && (
+              <button type="button" className="ghost danger" role="menuitem" aria-label="Delete" onClick={() => { setMoreOpen(false); props.onDelete?.(); }}>
+                <Trash2 size={14} /> Delete dialogue
+              </button>
+            )}
+          </div>
+        </div>
+        {props.driveMessage && <span className="hdr-msg">{props.driveMessage}</span>}
+      </div>
+    </header>
+  );
+}
+
+function AssistantMessage({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="panel expert-result-card assistant-surface" style={{ maxWidth: 820, margin: '0 auto 16px', lineHeight: 1.7 }}>
+      <div>{children}</div>
+    </div>
+  );
+}
+
+// --- TRIAGE ---
+
+function TriageScreen({
+  d,
+  update,
+  onContinue,
+}: {
+  d: Decision;
+  update: (p: Partial<Decision> | ((x: Decision) => Decision)) => void;
+  onContinue: () => void;
+}) {
+  const t = d.triage || {
+    crisis: false,
+    onlyValues: false,
+    q: { costly: false, hardToUndo: false, resolvableUnknowns: false, longHorizon: false },
+    outcome: 'OVERKILL' as const,
+  };
+
+  const setT = (patch: Partial<typeof t>) => {
+    const next = { ...t, ...patch };
+    if (patch.q) next.q = { ...t.q, ...patch.q };
+    const outcome = triage({
+      crisis: next.crisis,
+      onlyValues: next.onlyValues,
+      ...next.q,
+    });
+    next.outcome = outcome;
+    update({ triage: next });
+  };
+
+  // Quick start: if user needs urgent help — stop. No protocol.
+  const crisisBlocked = !!t.crisis;
+
+  return (
+    <div className="panel">
+      <h2>
+        <ShieldAlert size={18} /> Safety and fit check
+      </h2>
+      <div className="alert" style={{ marginBottom: 16 }}>
+        <strong>{en.crisisTitle}</strong>
+        <div style={{ marginTop: 8, display: 'flex', gap: 8 }}>
+          <button
+            className={t.crisis ? 'primary' : 'ghost'}
+            onClick={() => setT({ crisis: true, crisisConfirmed: false })}
+          >
+            Yes
+          </button>
+          <button
+            className={!t.crisis ? 'primary' : 'ghost'}
+            onClick={() => setT({ crisis: false, crisisConfirmed: false })}
+          >
+            No
+          </button>
+        </div>
+      </div>
+      {t.crisis && (
+        <div className="alert error">
+          <strong>Please pause.</strong> {en.crisisYes}
+          {SUPPORT_CONTACTS.length > 0 && (
+            <ul>
+              {SUPPORT_CONTACTS.map((c, i) => (
+                <li key={i}>
+                  {c.label}: {c.value}
+                </li>
+              ))}
+            </ul>
+          )}
+          <p style={{ marginTop: 8, fontSize: 13 }}>
+            Do not use this decision tool in this state. If things improve, come back and answer “No”.
+          </p>
+        </div>
+      )}
+      {!crisisBlocked && (
+        <>
+          <div className="triage-grid" style={{ display: 'grid', gap: 10, marginTop: 16 }}>
+            {(
+              [
+                ['costly', 'Would a wrong choice cost a lot (money, time, relationships, or health)?'],
+                ['hardToUndo', 'Would it be hard or expensive to undo?'],
+                ['resolvableUnknowns', 'Are there important things you can still find out?'],
+                ['longHorizon', 'Could the effects last a long time (years, not weeks)?'],
+              ] as const
+            ).map(([key, label]) => (
+              <label key={key} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <input
+                  type="checkbox"
+                  checked={t.q[key]}
+                  onChange={(e) => setT({ q: { ...t.q, [key]: e.target.checked } })}
+                />
+                {label}
+              </label>
+            ))}
+            <label style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <input
+                type="checkbox"
+                checked={t.onlyValues}
+                onChange={(e) => setT({ onlyValues: e.target.checked })}
+              />
+              This is only about personal values; there is nothing factual to check
+            </label>
+          </div>
+          <div className="alert" style={{ marginTop: 16 }}>
+            Result: <b>{TRIAGE_OUTCOME_LABEL[t.outcome]}</b> — {TRIAGE_OUTCOME_TEXT[t.outcome]}
+          </div>
+          <div className="actions" style={{ marginTop: 16 }}>
+            <button
+              className="primary"
+              disabled={crisisBlocked}
+              onClick={() => {
+                update({
+                  triage: { ...t, confirmed: true },
+                  brief: {
+                    ...d.brief,
+                    errorCost: {
+                      ...d.brief.errorCost,
+                      preliminary: t.q.costly ? 'HIGH' : 'LOW',
+                    },
+                    reversibility: {
+                      ...d.brief.reversibility,
+                      preliminary: t.q.hardToUndo ? 'ONE_WAY' : 'TWO_WAY',
+                    },
+                  },
+                });
+                onContinue();
+              }}
+            >
+              Continue <ArrowRight size={16} />
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// --- CONVERSATION HELPERS ---
+const INTENT_CHIPS: { id: string; label: string; hint: string }[] = [
+  { id: 'THINK_ALOUD', label: 'Think out loud', hint: 'Describe what is going on. There is no need to structure it.' },
+  { id: 'ARGUE_AGAINST', label: 'Argue against my plan', hint: 'Describe your plan and why it appeals to you. We will look for its strongest weak points.' },
+  { id: 'PREPARE_CONVERSATION', label: 'Prepare for a conversation', hint: 'Who do you need to talk to, and what do you want to find out from them?' },
+  { id: 'WHAT_FIRST', label: 'What to find out first', hint: 'Describe the decision. We will look for the one thing that could change it most.' },
+];
+
+const NOTE_REQUEST =
+  'Please write this up as a short note for me: what matters to me, what I do not know yet, and what I will find out this week.';
+function icsDownload(d: Decision) {
+  const events = (d.brief.reviewDates || []).map((date: string, i: number) => ({ uid: `${d.id}-rev-${i}@bifurcation`, date, summary: `Decision review ${i + 1}` }));
+  downloadBlob(new Blob([buildIcs(events)], { type: 'text/calendar' }), 'review.ics');
+}
+
+const DOCUMENT_REQUEST =
+  'Please prepare a document I can download: a clear summary of this conversation with what matters to me, what is not known yet and the next step.';
+
+function SafetyBox() {
+  return (
+    <div className="conversation-safety-box" role="note">
+      <div>If you are in immediate danger, contact a person near you or local emergency services first. You do not have to decide anything today.</div>
+      <ul>
+        {SUPPORT_CONTACTS.map((c, i) => (
+          <li key={i}>{c.label}: <b>{c.value}</b></li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+// --- BRIEF ---
+
+function BriefScreen({
+  d,
+  update,
+  runApi,
+  busy,
+  onProposedChangeSet,
+  expert,
+}: {
+  expert?: boolean;
+  d: Decision;
+  update: (p: Partial<Decision> | ((x: Decision) => Decision)) => void;
+  runApi: (path: string, body: unknown, onOk: (data: any, meta: any) => void) => void;
+  busy: boolean;
+  onProposedChangeSet?: (text: string | null) => void;
+}) {
+  const b = d.brief;
+  const setB = (patch: Partial<typeof b>) => update({ brief: { ...b, ...patch } });
+  const [files, setFiles] = useState<Attachment[]>([]);
+  const canContinue = b.decision.trim().length >= 3 || files.length > 0;
+  const distress = findDistressInTexts([b.decision]);
+  const [intent, setIntent] = useState<string>('THINK_ALOUD');
+  const chip = INTENT_CHIPS.find((c) => c.id === intent) || INTENT_CHIPS[0];
+
+  const [dragOver, setDragOver] = useState(false);
+
+  const submit = () => {
+    if (!canContinue || busy) return;
+    const text = b.decision.trim() || attachmentOnlyText(files);
+    window.dispatchEvent(new CustomEvent('be:user-language', { detail: { text } }));
+    const userMessage: any = { role: 'user', content: text, at: Date.now(), ...(files.length ? { attachments: files } : {}) };
+    // Persist pending so ConversationScreen can Retry if this first call fails.
+    update({
+      title: text.slice(0, 80) || d.title,
+      brief: { ...b, decision: text },
+      modelSuggestions: {
+        ...d.modelSuggestions,
+        conversation: [userMessage],
+        pendingSend: { text, files: [...files], intent },
+      },
+      step: 'UNDERSTAND',
+      interactionState: 'UNDERSTANDING',
+    });
+    runApi('/api/conversation', fitRequest({ brief: { ...b, decision: text }, history: historyForRequest([userMessage]), attachments: collectDecisionAttachments(d, [userMessage]), intent, ...expertConversationFields(d, expert) }), (data, meta) => {
+      const assistant: any = { role: 'assistant', content: data.reply, at: Date.now(), ...(data.document ? { document: data.document } : {}) };
+      if (typeof data.reply === 'string' && parseChangeSetFromText(data.reply)) onProposedChangeSet?.(data.reply);
+      setFiles([]);
+      update({
+        modelSuggestions: {
+          ...d.modelSuggestions,
+          conversation: [...applyAttachmentNotes([userMessage], data.attachmentNotes), assistant],
+          conversationMeta: meta,
+          conversationState: data.state,
+          conversationNextStep: data.triage === 'CRISIS' ? '' : data.nextStep || '',
+          conversationCrisis: data.triage === 'CRISIS',
+          pendingSend: undefined,
+        },
+        interactionState: 'PREVIEW_READY',
+      });
+      if (data.document) void archiveAgentDocument(data.document, d.id);
+    });
+  };
+
+  const onDragOver = (e: React.DragEvent) => {
+    if (busy || !e.dataTransfer?.types?.includes('Files')) return;
+    e.preventDefault();
+    e.stopPropagation();
+    setDragOver(true);
+  };
+  const onDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    setDragOver(false);
+  };
+  const onDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setDragOver(false);
+    if (busy) return;
+    const list = e.dataTransfer?.files;
+    if (list?.length) {
+      window.dispatchEvent(new CustomEvent('be:attach-files', { detail: { files: Array.from(list) } }));
+    }
+  };
+  const onPaste = (e: React.ClipboardEvent) => {
+    if (busy) return;
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    const pasted: File[] = [];
+    for (let i = 0; i < items.length; i++) {
+      const it = items[i];
+      if (it.kind === 'file') {
+        const f = it.getAsFile();
+        if (f) pasted.push(f);
+      }
+    }
+    if (pasted.length) {
+      e.preventDefault();
+      window.dispatchEvent(new CustomEvent('be:attach-files', { detail: { files: pasted } }));
+    }
+  };
+
+  return (
+    <div
+      className={`conversation-shell${dragOver ? ' drag-over' : ''}`}
+      onDragOver={onDragOver}
+      onDragLeave={onDragLeave}
+      onDrop={onDrop}
+    >
+      {dragOver && <div className="drag-overlay" aria-hidden>Drop files to attach</div>}
+      <div className="conversation-entry">
+        <div className="conversation-promise">
+          Not advice and not a verdict. We look for what you do not know yet, what you may be taking for granted, and the cheapest way to find out. Write in any language.
+        </div>
+        <div className="conversation-chips" role="group" aria-label="How do you want to start?">
+          {INTENT_CHIPS.map((c) => (
+            <button key={c.id} type="button" className={`chip ${c.id === intent ? 'active' : ''}`} onClick={() => setIntent(c.id)}>
+              {c.label}
+            </button>
+          ))}
+        </div>
+        <AutoTextarea
+          className="story-input conversation-input"
+          rows={7}
+          autoFocus
+          dir="auto"
+          placeholder={chip.hint}
+          value={b.decision}
+          onChange={(e) => {
+            const v = e.target.value;
+            setB({ decision: v });
+            update({ title: v.slice(0, 80) || d.title });
+          }}
+          onKeyDown={(e) => {
+            if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') submit();
+          }}
+          onPaste={onPaste}
+        />
+        {distress && <SafetyBox />}
+        <FilesPanel
+          files={files}
+          onFilesChange={setFiles}
+          disabled={busy}
+          expertMode={false}
+          title={d.title || b.decision.slice(0, 40) || 'Decision'}
+          history={[]}
+        />
+        <div className="conversation-entry-actions">
+          <button className="primary" disabled={!canContinue || busy} onClick={submit}>{busy ? 'Thinking…' : 'Send'} <ArrowRight size={16} /></button>
+          <span className="conversation-hint">Ctrl/Cmd + Enter</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// --- SHARED CONVERSATION CONTEXT ---
+// The conversation is a single shared state. Simple mode and Expert mode
+// display the same messages; Expert mode simply adds the structured method
+// below them. No new AI request is made by this component.
+function SharedConversationContext({ d, onDocumentEdit }: { d: Decision; onDocumentEdit?: (index: number, next: DocumentSpec) => void }) {
+  const history: any[] = Array.isArray(d.modelSuggestions?.conversation)
+    ? d.modelSuggestions!.conversation!
+    : [];
+  if (!history.length) return null;
+
+  const firstUser = history.find((m: any) => m.role === 'user');
+  const firstAssistant = history.find((m: any) => m.role === 'assistant');
+  const compact = (value: unknown) => String(value || '').replace(/\s+/g, ' ').trim();
+  const previewText = (value: unknown, max = 360) => {
+    const text = compact(value);
+    if (text.length <= max) return text;
+    return `${text.slice(0, max).replace(/\s+\S*$/, '')}…`;
+  };
+  const userPreview = previewText(firstUser?.content);
+  const assistantPreview = previewText(firstAssistant?.content);
+
+  return (
+    <div className="conversation-shell expert-shared-conversation">
+      <div className="method-transition-card" style={{ marginBottom: 16 }}>
+        <div style={{ marginTop: 0 }}>
+          <div className="conversation-message user" style={{ marginBottom: 8 }}>
+            <div className="conversation-message-text" translate="no" dir="auto" style={{ display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden' } as React.CSSProperties}>{userPreview}</div>
+          </div>
+          {assistantPreview && (
+            <div className="conversation-message assistant">
+              <div className="conversation-message-text" translate="no" dir="auto" style={{ display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden' } as React.CSSProperties}>{assistantPreview}</div>
+            </div>
+          )}
+        </div>
+        <details className="method-story-details" style={{ marginTop: 10 }}>
+          <summary>Read the full conversation</summary>
+          <div className="conversation-thread" style={{ marginTop: 10 }}>
+            {history.map((m: any, i: number) => (
+              <div key={i} className={`conversation-message ${m.role === 'user' ? 'user' : 'assistant'}`}>
+                <div className="conversation-message-text" translate="no" dir="auto">{m.content}</div>
+                <MessageExtras message={m} onDocumentEdit={onDocumentEdit ? (next) => onDocumentEdit(i, next) : undefined} />
+              </div>
+            ))}
+          </div>
+        </details>
+      </div>
+    </div>
+  );
+}
+
+// --- CONVERSATION ---
+function ConversationScreen({
+  d,
+  update,
+  runApi,
+  busy,
+  onDocumentEdit,
+  onProposedChangeSet,
+  alwaysShowComposer,
+  expert,
+}: {
+  expert?: boolean;
+  d: Decision;
+  update: (p: Partial<Decision> | ((x: Decision) => Decision)) => void;
+  runApi: (path: string, body: unknown, onOk: (data: any, meta: any) => void) => void;
+  busy: boolean;
+  onDocumentEdit?: (index: number, next: DocumentSpec) => void;
+  onProposedChangeSet?: (text: string | null) => void;
+  /** Expert: keep the message box visible even mid-method. */
+  alwaysShowComposer?: boolean;
+}) {
+  const [input, setInput] = useState('');
+  const [files, setFiles] = useState<Attachment[]>([]);
+  const [dragOver, setDragOver] = useState(false);
+  const ms: any = d.modelSuggestions || {};
+  const history: any[] = Array.isArray(ms.conversation) ? ms.conversation : [];
+  const waitingForAssistant = history.length > 0 && history[history.length - 1]?.role === 'user';
+  const nextStep: string = typeof ms.conversationNextStep === 'string' ? ms.conversationNextStep : '';
+  const lastAssistant = [...history].reverse().find((m: any) => m.role === 'assistant');
+  const askedQuestion = !!lastAssistant && /[?\uFF1F\u061F]\s*$/.test(String(lastAssistant.content || '').split('\n---\n')[0].trim());
+  const distress =
+    !!ms.conversationCrisis ||
+    !!findDistressInTexts([input, ...history.filter((m: any) => m.role === 'user').slice(-3).map((m: any) => m.content)]);
+
+  // Pending payload kept so Retry can re-send after a network / model failure.
+  // Also restored from modelSuggestions.pendingSend (set by BriefScreen on first send).
+  const pendingRef = useRef<{ text: string; files: Attachment[]; intent?: string } | null>(
+    ms.pendingSend && typeof ms.pendingSend.text === 'string'
+      ? { text: ms.pendingSend.text, files: Array.isArray(ms.pendingSend.files) ? ms.pendingSend.files : [], intent: ms.pendingSend.intent }
+      : null,
+  );
+
+  const send = (override?: string, intent?: string, fromRetry?: boolean, filesOverride?: Attachment[]) => {
+    const activeFiles = filesOverride ?? files;
+    const text = (override ?? input).trim() || (activeFiles.length ? attachmentOnlyText(activeFiles) : '');
+    if (!text || busy) return;
+    window.dispatchEvent(new CustomEvent('be:user-language', { detail: { text } }));
+    const lastAt: number | undefined = history.length ? history[history.length - 1]?.at : undefined;
+    const days = lastAt ? Math.floor((Date.now() - lastAt) / 86400000) : 0;
+    // On retry the last history item is already the user message we are resending.
+    const baseHistory = fromRetry && waitingForAssistant ? history.slice(0, -1) : history;
+    const userMsg = { role: 'user' as const, content: text, at: Date.now(), ...(activeFiles.length ? { attachments: activeFiles } : {}) };
+    const nextHistory = [...baseHistory, userMsg];
+    const pending = { text, files: [...activeFiles], intent };
+    pendingRef.current = pending;
+    setInput('');
+    setFiles([]);
+    update({
+      modelSuggestions: { ...d.modelSuggestions, conversation: nextHistory, pendingSend: pending },
+      interactionState: 'UNDERSTANDING',
+    });
+    runApi(
+      '/api/conversation',
+      fitRequest({ brief: d.brief, history: historyForRequest(nextHistory), attachments: collectDecisionAttachments(d, nextHistory), state: ms.conversationState, intent, returningAfterDays: days >= 1 ? days : undefined, ...expertConversationFields(d, expert) }),
+      (data, meta) => {
+        pendingRef.current = null;
+        update({
+          modelSuggestions: {
+            ...d.modelSuggestions,
+            conversation: [...applyAttachmentNotes(nextHistory, data.attachmentNotes), { role: 'assistant', content: data.reply, at: Date.now(), ...(data.document ? { document: data.document } : {}) }],
+            conversationMeta: meta,
+            conversationState: data.state ?? ms.conversationState,
+            conversationNextStep: data.triage === 'CRISIS' ? '' : data.nextStep || nextStep,
+            conversationCrisis: data.triage === 'CRISIS',
+            pendingSend: undefined,
+          },
+          interactionState: 'PREVIEW_READY',
+        });
+        if (typeof data.reply === 'string' && parseChangeSetFromText(data.reply)) onProposedChangeSet?.(data.reply);
+        if (data.document) void archiveAgentDocument(data.document, d.id);
+      },
+    );
+  };
+
+  const retry = () => {
+    const fromStore = ms.pendingSend && typeof ms.pendingSend.text === 'string'
+      ? { text: ms.pendingSend.text, files: Array.isArray(ms.pendingSend.files) ? ms.pendingSend.files : [], intent: ms.pendingSend.intent }
+      : null;
+    const p = pendingRef.current || fromStore;
+    if (!p || busy) return;
+    // Fallback: resend last user message text from history if files were lost.
+    if (!p.text && waitingForAssistant) {
+      const last = history[history.length - 1];
+      if (last?.role === 'user') {
+        send(String(last.content || ''), undefined, true, Array.isArray(last.attachments) ? last.attachments : []);
+        return;
+      }
+    }
+    send(p.text, p.intent, true, p.files);
+  };
+
+  // Drag-and-drop onto the conversation shell
+  const onDragOver = (e: React.DragEvent) => {
+    if (busy || !e.dataTransfer?.types?.includes('Files')) return;
+    e.preventDefault();
+    e.stopPropagation();
+    setDragOver(true);
+  };
+  const onDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    setDragOver(false);
+  };
+  const onDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setDragOver(false);
+    if (busy) return;
+    const list = e.dataTransfer?.files;
+    if (list?.length) {
+      window.dispatchEvent(new CustomEvent('be:attach-files', { detail: { files: Array.from(list) } }));
+    }
+  };
+
+  // Paste image / files from clipboard into the composer
+  const onPaste = (e: React.ClipboardEvent) => {
+    if (busy) return;
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    const files: File[] = [];
+    for (let i = 0; i < items.length; i++) {
+      const it = items[i];
+      if (it.kind === 'file') {
+        const f = it.getAsFile();
+        if (f) files.push(f);
+      }
+    }
+    if (files.length) {
+      e.preventDefault();
+      window.dispatchEvent(new CustomEvent('be:attach-files', { detail: { files } }));
+    }
+  };
+
+  return (
+    <div
+      className={`conversation-shell${dragOver ? ' drag-over' : ''}`}
+      onDragOver={onDragOver}
+      onDragLeave={onDragLeave}
+      onDrop={onDrop}
+    >
+      {dragOver && <div className="drag-overlay" aria-hidden>Drop files to attach</div>}
+      <div className="conversation-thread">
+        {history.map((m: any, i: number) => (
+          <div key={i} className={`conversation-message ${m.role === 'user' ? 'user' : 'assistant'}`}>
+            <div className="conversation-message-text" translate="no" dir="auto">{m.content}</div>
+            <MessageExtras message={m} onDocumentEdit={onDocumentEdit ? (next) => onDocumentEdit(i, next) : undefined} />
+            {m.role === 'assistant' && !m.document && i === history.map((x: any) => x.role).lastIndexOf('assistant') && String(m.content || '').length >= 120 && !String(m.content).includes('\n---\n') && <CopyButton title={d.title} text={String(m.content)} />}
+            {/* Retry under the last user message when the assistant never answered */}
+            {m.role === 'user' && i === history.length - 1 && waitingForAssistant && !busy && (
+              <div className="message-retry">
+                <button type="button" className="ghost retry-button" onClick={retry} aria-label="Retry">
+                  <RotateCcw size={14} /> Retry
+                </button>
+                <span className="conversation-hint">No reply yet — try again</span>
+              </div>
+            )}
+          </div>
+        ))}
+        {busy && <div className="conversation-message assistant"><div className="conversation-message-text conversation-thinking">Looking at your specific situation…</div></div>}
+      </div>
+      {distress && <SafetyBox />}
+      {nextStep && !busy && !ms.conversationCrisis && (
+        <div className="conversation-note assistant-surface">
+          <span className="conversation-note-label">Next useful step: </span>
+          <span translate="no" dir="auto">{nextStep}</span>
+        </div>
+      )}
+      {/* Stage 2: permanent Files panel — always two buttons, both modes */}
+      <FilesPanel
+        files={files}
+        onFilesChange={setFiles}
+        disabled={busy}
+        expertMode={false}
+        title={d.title}
+        history={history}
+        canCalendar={Array.isArray(d.brief?.reviewDates) && d.brief.reviewDates.length > 0}
+        onAgentSummary={() => send(input.trim() ? input : DOCUMENT_REQUEST, 'DOCUMENT')}
+        onCalendar={() => icsDownload(d)}
+      />
+      {(alwaysShowComposer || history.some((m: any) => m.role === 'assistant')) && !waitingForAssistant && !busy && (
+        <div className="conversation-composer">
+          <AutoTextarea
+            value={input}
+            dir="auto"
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => { if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') send(); }}
+            onPaste={onPaste}
+            placeholder={
+              alwaysShowComposer
+                ? 'Clarify a fact, ask a question, or add something the steps missed…'
+                : askedQuestion
+                  ? 'Your answer. “I don’t know” is a fine answer too.'
+                  : 'Anything to add, or something you want to look at next?'
+            }
+            rows={3}
+          />
+          <button className="primary" disabled={!input.trim() && !files.length} onClick={() => send()}>Send <ArrowRight size={16} /></button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ExpertStageIntro({
+  step: _step,
+  title: _title,
+  task: _task,
+  next: _next,
+}: {
+  step: string;
+  title: string;
+  task: string;
+  next: string;
+}) {
+  return null;
+}
+
+// Model output remains unrestricted. This display-only pass prevents a model-invented
+// numeric example from looking like a user-provided or calculated value. It never retries
+// or rejects an AI response.
+function sanitizeDisplayExample(text: unknown, userText: string): string {
+  const value = String(text || '').trim();
+  if (!value) return '';
+  if (!/(?:например|допустим|условно|к примеру|скажем|for example|e\.g\.|suppose|let'?s say|say,?)/i.test(value)) return value;
+  const userNumbers = new Set((userText.match(/-?\d+(?:[.,]\d+)?/g) || []).map((n) => n.replace(',', '.')));
+  const actionNumbers = value.match(/-?\d+(?:[.,]\d+)?/g) || [];
+  const hasUngroundedNumber = actionNumbers.some((n) => !userNumbers.has(n.replace(',', '.')));
+  if (!hasUngroundedNumber) return value;
+
+  // Keep the action, remove only the unsupported illustrative figure.
+  return value
+    .replace(/(?:например|допустим|условно|к примеру|скажем)\s+(?:около\s+|примерно\s+)?-?\d+(?:[.,]\d+)?(?:\s*(?:евро|€|доллар(?:ов|а)?|\$|%|процентов?))?/gi, 'небольшой тестовый бюджет')
+    .replace(/(?:for example|e\.g\.|suppose|let'?s say)\s+(?:about\s+|around\s+)?-?\d+(?:[.,]\d+)?(?:\s*(?:eur|euro|€|usd|\$|%|percent))?/gi, 'a small test budget')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+}
+
+// --- UNDERSTAND ---
+function UnderstandScreen({
+  d,
+  update,
+  runApi,
+  busy,
+}: {
+  d: Decision;
+  update: (p: Partial<Decision> | ((x: Decision) => Decision)) => void;
+  runApi: (path: string, body: unknown, onOk: (data: any, meta: any) => void) => void;
+  busy: boolean;
+}) {
+  const [answer, setAnswer] = useState('');
+  const understandStarted = useRef(false);
+  const preview: any = d.modelSuggestions?.preview;
+  const unknowns = d.radar?.unknowns || [];
+  const open = unknowns.filter((u) => u.critical && !u.discarded && !u.answer && u.status !== 'USER_UNKNOWN' && u.status !== 'ACCEPTED_UNCERTAINTY');
+  const current = open[0];
+
+  useEffect(() => {
+    const analysisVersion = (d.radar as any)?.meta?.expertAnalysisVersion;
+    const analysisIsCurrent = analysisVersion === 'v4';
+    if (analysisIsCurrent || busy || understandStarted.current || !d.brief.decision) return;
+    understandStarted.current = true;
+    runApi('/api/understand', { brief: d.brief, history: d.modelSuggestions?.conversation || [] }, (data, meta) => {
+      const neutralItems = data?.neutralization?.items || [];
+      const radarData = data?.radar || {};
+      const mapClaim = (c: any, kind: string) => ({
+        id: c.id || uid('c'), kind: kind as any, text: c.text || '', source: c.source || 'USER_DATA',
+        sourceType: 'MODEL' as const, status: 'UNRESOLVED' as const, evidenceIds: [],
+        createdAt: Date.now(), updatedAt: Date.now(), userImportance: c.userImportance,
+      });
+      const radar = {
+        facts: (radarData.facts || []).map((c: any) => ({ ...mapClaim(c, 'FACT'), provenance: c.provenance || 'KNOWN' })),
+        assumptions: (radarData.assumptions || []).map((c: any) => ({ ...mapClaim(c, 'ASSUMPTION'), provenance: c.provenance || 'ASSUMPTION' })),
+        examples: (radarData.examples || []).map((c: any) => ({ ...mapClaim(c, 'ASSUMPTION'), provenance: 'EXAMPLE', source: 'USER_EXAMPLE' })),
+        interpretations: (radarData.interpretations || []).map((c: any) => mapClaim(c, 'INTERPRETATION')),
+        values: (radarData.values || []).map((c: any) => mapClaim(c, 'VALUE')),
+        needsExternalCheck: (radarData.needsExternalCheck || []).map((c: any) => mapClaim(c, 'EXTERNAL_VERIFY')),
+        unknowns: (radarData.unknowns || []).map((u: any) => ({
+          id: u.id || uid('u'), kind: 'UNKNOWN' as const, text: u.question || '', source: u.source || 'USER_DATA',
+          sourceType: 'MODEL' as const, status: 'UNRESOLVED' as const, evidenceIds: [], createdAt: Date.now(), updatedAt: Date.now(),
+          question: u.question || '', whyChangesDecision: u.whyChangesDecision || '', howToFindOut: u.howToFindOut || '',
+          effort: u.effort || 'DAYS', branchIfA: u.branchIfA || { answer: '', leadsTo: '' }, branchIfB: u.branchIfB || { answer: '', leadsTo: '' },
+          critical: !!u.critical, owner: u.owner || 'You',
+        })),
+        meta: { ...meta, expertAnalysisVersion: 'v4' },
+      };
+      update({
+        neutralization: neutralItems.map((it: any) => ({ id: it.id || uid('n'), original: it.original || '', kind: it.kind || 'KEEP', neutralQuestion: it.neutralQuestion, userChoice: 'ACCEPT' as const })),
+        neutralizationConfirmed: true,
+        radar,
+        interactionState: 'UNDERSTANDING',
+      });
+    });
+  }, [d.radar, busy, d.brief.decision]);
+
+  const resolveCurrent = (status: 'ANSWER' | 'UNKNOWN' | 'ACCEPT') => {
+    if (!current) return;
+    const next = unknowns.map((u) => u.id === current.id ? {
+      ...u,
+      status: status === 'ANSWER' ? 'USER_CONFIRMED' as const : status === 'UNKNOWN' ? 'USER_UNKNOWN' as const : 'ACCEPTED_UNCERTAINTY' as const,
+      answer: status === 'ANSWER' ? answer.trim() : undefined,
+      owner: u.owner || 'You',
+    } : u);
+    update({ radar: { ...d.radar!, unknowns: next } });
+    setAnswer('');
+  };
+
+  const goToOptions = () => {
+    if (!d.radar) return;
+    runApi('/api/expand', { brief: d.brief, radar: d.radar, myOptions: d.brief.myOptions }, (data, meta) => {
+      const modelOpts: Option[] = (data.options || []).map((o: any) => ({
+        id: o.id || uid('opt'), title: o.title || '', description: o.description || '', byUser: false,
+        kind: o.kind, keyAssumption: o.keyAssumption || '', exitCost: o.exitCost || '', cheapestTest: o.cheapestTest || '',
+        door: o.door || 'TWO_WAY', realistic: 'UNKNOWN' as const, linkedUnknownIds: o.linkedUnknownIds || [],
+      }));
+      const userOpts = d.brief.myOptions.filter((o) => o.title.trim()).map((o) => ({
+        id: o.id, title: o.title, description: '', byUser: true, keyAssumption: '', exitCost: '', cheapestTest: '', door: 'TWO_WAY' as Door, realistic: 'YES' as const, linkedUnknownIds: [],
+      }));
+      update({ knowledgeMap: { ...(data.knowledgeMap || {}), meta, confirmed: true }, options: [...userOpts, ...modelOpts], step: 'EXPAND', interactionState: 'OPTIONS_READY' });
+    });
+  };
+
+  const compact = (value: unknown) => String(value || '').replace(/\s+/g, ' ').trim();
+  const normalizeForCompare = (value: unknown) => compact(value).toLocaleLowerCase().replace(/[^\p{L}\p{N}%€$£]+/gu, ' ');
+  const isUseful = (value: unknown) => {
+    const text = compact(value);
+    if (text.length < 8) return false;
+    if (/^(?:unknown|unknown\.|not specified|not provided|none|n\/a)$/i.test(text)) return false;
+    if (/^(?:consider your options|analyze the situation|collect more information|provide more details)$/i.test(text)) return false;
+    return true;
+  };
+  const list = (items: any[] | undefined, max = 6) => {
+    const seen = new Set<string>();
+    return (items || []).filter((x) => {
+      if (!x?.text || !isUseful(x.text)) return false;
+      const key = normalizeForCompare(x.text);
+      if (!key || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    }).slice(0, max);
+  };
+  const textList = (items: any[] | undefined, max = 6) => {
+    const seen = new Set<string>();
+    return (items || []).filter((x) => {
+      if (!isUseful(x)) return false;
+      const key = normalizeForCompare(x);
+      if (!key || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    }).slice(0, max).map((x) => compact(x));
+  };
+  const facts = list(d.radar?.facts, 8);
+  const summary = compact((d.radar as any)?.decisionSummary);
+  const situation = textList((d.radar as any)?.currentSituation, 5).filter((x: string) => {
+    const text = normalizeForCompare(x);
+    return !facts.some((f: any) => normalizeForCompare(f.text) === text);
+  });
+
+  // Facts and the short situation are already present in the user's conversation.
+  // Keep them as grounding data internally, but do not repeat them in the main result.
+  const references = [summary, ...situation, ...facts.map((x: any) => x.text)].filter(Boolean).map(normalizeForCompare);
+  const isRedundantWithGrounding = (text: string) => {
+    const tokens = new Set(normalizeForCompare(text).split(/\s+/).filter(Boolean));
+    if (tokens.size < 5) return references.includes(normalizeForCompare(text));
+    return references.some((ref) => {
+      const rt = new Set(ref.split(/\s+/).filter(Boolean));
+      const overlap = [...tokens].filter((t) => rt.has(t)).length;
+      return overlap / Math.max(tokens.size, rt.size) >= 0.78;
+    });
+  };
+
+  const assumptions = list(d.radar?.assumptions, 8).filter((x: any) => !isRedundantWithGrounding(x.text));
+  const examples = list((d.radar as any)?.examples, 8).filter((x: any) => !isRedundantWithGrounding(x.text));
+  const interpretations = list(d.radar?.interpretations, 6).filter((x: any) => !isRedundantWithGrounding(x.text));
+  const values = list(d.radar?.values, 6).filter((x: any) => !isRedundantWithGrounding(x.text));
+  const externalChecks = list(d.radar?.needsExternalCheck, 6).filter((x: any) => !isRedundantWithGrounding(x.text));
+  const answered = (d.radar?.unknowns || []).filter((u) => !u.discarded && (u.answer || u.status === 'USER_UNKNOWN' || u.status === 'ACCEPTED_UNCERTAINTY'));
+  const unresolved = (d.radar?.unknowns || []).filter((u) => !u.discarded && !u.answer && u.status !== 'USER_UNKNOWN' && u.status !== 'ACCEPTED_UNCERTAINTY');
+
+  const RadarBlock = ({ title, items, hint }: { title: string; items: any[]; hint?: string }) => {
+    if (!items.length) return null;
+    return (
+      <div className="question">
+        <div className="listhead">{title}</div>
+        {hint && <div className="expert-info-hint">{hint}</div>}
+        <ul>
+          {items.map((x, i) => (
+            <li key={x.id || i} dir="auto">
+              {x.text}
+              {x.provenance === 'EXAMPLE' && <span className="expert-info-hint" style={{ display: 'inline', marginLeft: 8 }}>example</span>}
+            </li>
+          ))}
+        </ul>
+      </div>
+    );
+  };
+
+  return (
+    <div className="friendly-flow">
+      {!d.radar && busy && (
+        <AssistantMessage>
+          <p style={{ marginTop: 0 }}>Looking at the specific facts and unknowns in your situation…</p>
+        </AssistantMessage>
+      )}
+
+      {d.radar && (
+        <>
+          {(Boolean(summary) || assumptions.length > 0 || examples.length > 0 || interpretations.length > 0 || values.length > 0 || externalChecks.length > 0) && (
+            <AssistantMessage>
+              {summary && (
+                <div className="question">
+                  <div className="listhead">YOUR DECISION</div>
+                  <p style={{ marginBottom: 0 }} dir="auto">{summary}</p>
+                </div>
+              )}
+              <RadarBlock title="What is still an assumption" items={assumptions} />
+              <RadarBlock title="Examples and hypothetical values" items={examples} />
+              <RadarBlock title="What may be an interpretation" items={interpretations} />
+              <RadarBlock title="What matters to you" items={values} />
+              <RadarBlock title="What needs an outside check" items={externalChecks} />
+            </AssistantMessage>
+          )}
+
+          {Array.isArray((d.radar as any)?.nextActions) && (d.radar as any).nextActions.length > 0 && (
+            <AssistantMessage>
+              <div className="listhead">Next useful actions</div>
+              <div className="cards">
+                {(d.radar as any).nextActions.slice(0, 5).map((a: any, i: number) => {
+                  const userText = [
+                    d.brief?.decision,
+                    ...((d.modelSuggestions?.conversation || []) as any[])
+                      .filter((m: any) => m?.role === 'user')
+                      .map((m: any) => m.content),
+                  ].join(' ');
+                  return (
+                    <div className="option" key={i}>
+                      <div className="optiontop" dir="auto">{sanitizeDisplayExample(a.action || a.title || `Action ${i + 1}`, userText)}</div>
+                      {a.why && <div className="option-copy" dir="auto"><b className="ui-label">Why:</b> {sanitizeDisplayExample(a.why, userText)}</div>}
+                      {a.measure && <div className="option-copy" dir="auto"><b className="ui-label">What to measure:</b> {sanitizeDisplayExample(a.measure, userText)}</div>}
+                      {a.decisionEffect && <div className="option-copy" dir="auto"><b className="ui-label">What changes if the result is different:</b> {sanitizeDisplayExample(a.decisionEffect, userText)}</div>}
+                    </div>
+                  );
+                })}
+              </div>
+            </AssistantMessage>
+          )}
+
+          {answered.length > 0 && (
+            <div className="panel expert-result-card assistant-surface answered-card" style={{ maxWidth: 820, margin: '0 auto 16px', lineHeight: 1.7 }}>
+              <div className="listhead">Your answers</div>
+              <ul>
+                {answered.map((u) => (
+                  <li key={u.id} style={{ marginBottom: 12 }}>
+                    <div className="open-question" dir="auto">{u.question}</div>
+                    <div className="user-text answered-reply" dir="auto">{u.answer ? u.answer : "I don't know"}</div>
+                  </li>
+                ))}
+              </ul>
+              {unresolved.length > 0 && <div className="open-why" style={{ marginTop: 4 }}>Saved. The next question is below. Your answers are taken into account when the possible paths are built.</div>}
+            </div>
+          )}
+
+          {unresolved.length > 0 ? (
+            <AssistantMessage>
+              <div className="listhead">Open questions</div>
+              <ul>
+                {unresolved.slice(0, 5).map((u) => (
+                  <li key={u.id} style={{ marginBottom: 10 }}>
+                    <div className="open-question" dir="auto">{u.question}</div>
+                    {u.whyChangesDecision && <div className="open-why" style={{ marginTop: 3 }} dir="auto">{u.whyChangesDecision}</div>}
+                    {u === current && (
+                      <div className="question" style={{ marginTop: 10 }}>
+                        {u.howToFindOut && <p dir="auto"><b className="ui-label">How to find out:</b> {u.howToFindOut}</p>}
+                        <AutoTextarea className="open-question-input" value={answer} onChange={(e) => setAnswer(e.target.value)} placeholder="Your answer, or leave it blank if you do not know" rows={4} style={{ width: '100%' }} />
+                        <div className="actions" style={{ marginTop: 10 }}>
+                          <button className="primary" disabled={!answer.trim() || busy} onClick={() => resolveCurrent('ANSWER')}>Answer <ArrowRight size={16} /></button>
+                          <button className="ghost" disabled={busy} onClick={() => resolveCurrent('UNKNOWN')}>I don't know</button>
+                        </div>
+                      </div>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </AssistantMessage>
+          ) : (
+            <AssistantMessage>
+              <button className="primary" disabled={busy} onClick={goToOptions}>See the possible paths <ArrowRight size={16} /></button>
+            </AssistantMessage>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+// --- EXPAND ---
+function ExpandScreen({ d, update, busy }: { d: Decision; update: (p: Partial<Decision> | ((x: Decision) => Decision)) => void; runApi?: any; busy: boolean; }) {
+  const visible = d.options.filter((o) => o.realistic !== 'NO');
+  return (
+    <div className="friendly-flow">
+      <ExpertStageIntro
+        step="2 · EXPAND"
+        title="Look beyond the obvious choices"
+        task="The engine widens the decision. Your job is to see which paths are realistic for you — including smaller, reversible, or information-first moves."
+        next="you can stress-test the paths, or stop here if you already have enough to make your own decision."
+      />
+      <AssistantMessage>
+        <p style={{ marginTop: 0 }}>We have widened the decision beyond the original framing. These are possibilities to consider — not recommendations.</p>
+        <p>Here are the main possibilities to keep on the table:</p>
+        <div className="cards">
+          {visible.map((o) => (
+            <div key={o.id} className="option">
+              <div className="optiontop">{o.title}</div>
+              {o.description && <div className="option-copy">{o.description}</div>}
+              {o.keyAssumption && <div><b className="ui-label">Key assumption:</b> {o.keyAssumption}</div>}
+              {o.exitCost && <div><b className="ui-label">If it is wrong:</b> {o.exitCost}</div>}
+              {o.cheapestTest && <div><b className="ui-label">Cheapest useful check:</b> {o.cheapestTest}</div>}
+            </div>
+          ))}
+        </div>
+        <p>The useful question now is not “which one wins?” but “what would we need to learn before one of these becomes clearly more or less workable?”</p>
+        <div className="actions">
+          <button className="primary" disabled={busy || visible.length < 2} onClick={() => update({ step: 'ATTACK', interactionState: 'ATTACK_READY' })}>Let’s test what could go wrong <ArrowRight size={16} /></button>
+          <button className="ghost" onClick={() => update({ step: 'DECIDE', interactionState: 'USER_SATISFIED' })}>I have enough to decide</button>
+        </div>
+      </AssistantMessage>
+    </div>
+  );
+}
+
+// --- ATTACK ---
+function AttackScreen({
+  d,
+  update,
+  runApi,
+  busy,
+}: {
+  d: Decision;
+  update: (p: Partial<Decision> | ((x: Decision) => Decision)) => void;
+  runApi: (path: string, body: unknown, onOk: (data: any, meta: any) => void) => void;
+  busy: boolean;
+}) {
+  const real = d.options.filter((o) => o.realistic !== 'NO');
+  const first = real.find((o) => o.id === d.preferredOptionId) || real[0];
+  const second = real.find((o) => o.id === d.oppositeOptionId) || real.find((o) => o.id !== first?.id);
+  const tested = d.redTeam.length >= 2;
+
+  const testRisks = () => {
+    if (!first || !second) return;
+    runApi('/api/redteam-pair', { brief: d.brief, firstOption: first, secondOption: second, radar: d.radar, knowledgeMap: d.knowledgeMap }, (data, meta) => {
+      const makeRound = (raw: any, role: 'PREFERRED' | 'OPPOSITE', fallbackId: string) => ({
+        targetOptionId: raw?.targetOptionId || fallbackId, role,
+        objections: (raw?.objections || []).map((o: any, i: number) => ({
+          id: o.id || `${role.toLowerCase()}_obj_${i}`, argument: o.argument || '', hiddenAssumption: o.hiddenAssumption || '',
+          failureMode: o.failureMode || '', whatMustBeTrueForCritiqueToBeWeak: o.whatMustBeTrueForCritiqueToBeWeak || '', verifiability: o.verifiability || 'SPECULATION',
+        })), meta,
+      });
+      const rounds = data.rounds || [];
+      const a = rounds.find((r: any) => r.role === 'PREFERRED') || rounds[0];
+      const b = rounds.find((r: any) => r.role === 'OPPOSITE') || rounds[1];
+      update({ preferredOptionId: first.id, oppositeOptionId: second.id, redTeam: [makeRound(a, 'PREFERRED', first.id), makeRound(b, 'OPPOSITE', second.id)] });
+    });
+  };
+
+  return (
+    <div className="friendly-flow">
+      <ExpertStageIntro
+        step="3 · ATTACK"
+        title="Try to break the options before they break you"
+        task="The engine looks for strong reasons each path could fail. You do not need to defend or approve the critique. Look for anything that deserves a real check."
+        next="after the weak points are visible, you can make your decision or choose something worth testing first."
+      />
+      <AssistantMessage>
+        <p style={{ marginTop: 0 }}>We will stress-test the paths symmetrically. This is not a vote for or against any option.</p>
+        {!tested && <button className="primary" disabled={busy || !first || !second} onClick={testRisks}>Show me the weak points</button>}
+      </AssistantMessage>
+
+      {tested && (
+        <>
+          {d.redTeam.map((r) => {
+            const option = d.options.find((o) => o.id === r.targetOptionId);
+            return (
+              <AssistantMessage key={r.role}>
+                <p style={{ marginTop: 0 }}><b>{option?.title || 'This path'}</b> — what could make it fail</p>
+                {r.objections.map((o) => (
+                  <div key={o.id} className="attack">
+                    <div><b className="ui-label">Concern:</b> {o.argument}</div>
+                    {o.hiddenAssumption && <div><b className="ui-label">Hidden assumption:</b> {o.hiddenAssumption}</div>}
+                    {o.failureMode && <div><b className="ui-label">Failure mode:</b> {o.failureMode}</div>}
+                    {o.whatMustBeTrueForCritiqueToBeWeak && <div><b className="ui-label">What would make this concern weaker:</b> {o.whatMustBeTrueForCritiqueToBeWeak}</div>}
+                  </div>
+                ))}
+              </AssistantMessage>
+            );
+          })}
+          <AssistantMessage>
+            <p style={{ marginTop: 0 }}>You do not need to score or approve every objection. The point is simply to notice what deserves checking before you commit.</p>
+            <div className="actions">
+              <button className="primary" onClick={() => update({ step: 'DECIDE', interactionState: 'SYNTHESIS_READY' })}>I want to make my decision <ArrowRight size={16} /></button>
+              <button className="ghost" onClick={() => update({ step: 'TEST', interactionState: 'TEST_READY' })}>I want to test something first</button>
+            </div>
+          </AssistantMessage>
+        </>
+      )}
+    </div>
+  );
+}
+
+// --- TEST ---
+function TestScreen({
+  d,
+  update,
+  runApi,
+  busy,
+}: {
+  d: Decision;
+  update: (p: Partial<Decision> | ((x: Decision) => Decision)) => void;
+  runApi: (path: string, body: unknown, onOk: (data: any, meta: any) => void) => void;
+  busy: boolean;
+}) {
+  const selected = d.hypotheses.filter((h) => h.selectedByUser);
+  // Contour 4: each selected hypothesis needs a locked card with metric, deadline, thresholds, forecast
+  const allHypsCovered = selected.every((h) => {
+    const card = d.experiments.find(
+      (e) => e.hypothesisId === h.id && (e.status === 'READY' || e.lockedAt)
+    );
+    return (
+      !!card &&
+      !!card.metric?.trim() &&
+      !!(card.deadline || (card as any).deadlineWords)?.toString().trim() &&
+      !!card.successThreshold?.trim() &&
+      !!card.stopThreshold?.trim() &&
+      !!card.forecast?.wording?.trim() &&
+      card.forecast?.confidence !== undefined
+    );
+  });
+  const finalCostSet = !!d.brief.errorCost?.final;
+  const finalRevSet = !!d.brief.reversibility?.final;
+
+  return (
+    <div>
+      <ExpertStageIntro
+        step="4 · VERIFY"
+        title="Turn an important uncertainty into a check"
+        task="Choose a critical hypothesis and define a cheap, concrete way to learn whether it is true. Fix the metric, deadline, thresholds, and your own forecast before the result is known."
+        next="once the check is locked, you can run it and later record what actually happened."
+      />
+      <div className="panel">
+        <h2>Experiment drafts</h2>
+        <p style={{ fontSize: 12, color: '#7f93aa' }}>
+          Each selected hypothesis needs a locked card (metric, deadline, thresholds,
+          forecast). Re-fetching drafts does not overwrite locked cards.
+        </p>
+        <button
+          className="primary"
+          disabled={busy || selected.length < 1}
+          onClick={() =>
+            runApi(
+              '/api/experiment-draft',
+              {
+                brief: d.brief,
+                hypotheses: selected,
+                // Pass context from contour 1 so each loop feeds the next
+                radar: d.radar,
+                knowledgeMap: d.knowledgeMap,
+                answeredUnknowns: (d.radar?.unknowns || [])
+                  .filter((u) => u.critical && (u.answer || u.status))
+                  .map((u) => ({
+                    question: u.question || u.text,
+                    answer: u.answer,
+                    status: u.status,
+                    owner: u.owner,
+                  })),
+              },
+              (data) => {
+                const locked = d.experiments.filter(
+                  (e) => e.status === 'READY' || e.lockedAt || e.status === 'RUNNING' || e.status === 'COMPLETED'
+                );
+                const lockedHypIds = new Set(locked.map((e) => e.hypothesisId));
+                const drafts: ExperimentCard[] = (data.drafts || [])
+                  .filter((dr: any) => {
+                    const hid = dr.hypothesisId || selected[0]?.id || '';
+                    return !lockedHypIds.has(hid);
+                  })
+                  .map((dr: any) => ({
+                    id: uid('exp'),
+                    hypothesisId: dr.hypothesisId || selected[0]?.id || '',
+                    whyCritical: dr.whyCritical || '',
+                    test: dr.test || '',
+                    metric: dr.metric || '',
+                    deadlineWords: dr.deadlineWords || '',
+                    thresholdQuestions: dr.threshold_questions || [],
+                    validityThreats: (dr.validity_threats || []).map((t: any) => ({
+                      threat: t.threat || '',
+                      protection: t.protection || '',
+                      handled: false,
+                    })),
+                    ifSuccess: dr.ifSuccessHint || '',
+                    ifFailure: dr.ifFailureHint || '',
+                    status: 'DRAFT' as const,
+                    evidenceIds: [],
+                    history: [],
+                    thresholdShiftedAfterStart: false,
+                  }));
+                // Keep locked cards; replace only drafts for unlocked hypotheses
+                const kept = d.experiments.filter(
+                  (e) =>
+                    e.status === 'READY' ||
+                    e.lockedAt ||
+                    e.status === 'RUNNING' ||
+                    e.status === 'COMPLETED' ||
+                    !selected.some((h) => h.id === e.hypothesisId)
+                );
+                update({ experiments: [...kept, ...drafts] });
+              }
+            )
+          }
+        >
+          Get drafts
+        </button>
+      </div>
+
+      {d.experiments.map((exp) => (
+        <ExperimentCardEditor
+          key={exp.id}
+          exp={exp}
+          d={d}
+          update={update}
+          busy={busy}
+          runApi={runApi}
+        />
+      ))}
+
+      <div className="panel" style={{ marginTop: 12 }}>
+        <h3>Final cost of error and reversibility (before locking kill criteria)</h3>
+        <p style={{ fontSize: 12, color: '#7f93aa' }}>
+          The method requires a final assessment before locking kill criteria.
+        </p>
+        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+          <div>
+            <label>Cost of a wrong choice</label>
+            <select
+              value={d.brief.errorCost.final || ''}
+              onChange={(e) =>
+                update({
+                  brief: {
+                    ...d.brief,
+                    errorCost: {
+                      ...d.brief.errorCost,
+                      final: (e.target.value || undefined) as Level | undefined,
+                    },
+                  },
+                })
+              }
+            >
+              <option value="">—</option>
+              <option value="LOW">low</option>
+              <option value="MEDIUM">medium</option>
+              <option value="HIGH">high</option>
+              <option value="UNKNOWN">unknown</option>
+            </select>
+          </div>
+          <div>
+            <label>Can you undo it?</label>
+            <select
+              value={d.brief.reversibility.final || ''}
+              onChange={(e) =>
+                update({
+                  brief: {
+                    ...d.brief,
+                    reversibility: {
+                      ...d.brief.reversibility,
+                      final: (e.target.value || undefined) as Door | 'UNKNOWN' | undefined,
+                    },
+                  },
+                })
+              }
+            >
+              <option value="">—</option>
+              <option value="TWO_WAY">two-way door (can reverse)</option>
+              <option value="ONE_WAY">one-way door (costly to reverse)</option>
+              <option value="UNKNOWN">unknown</option>
+            </select>
+          </div>
+        </div>
+        {d.brief.errorCost.final === 'HIGH' && d.brief.reversibility.final === 'ONE_WAY' && (
+          <div className="alert" style={{ marginTop: 8 }}>
+            High cost of error and hard-to-reverse step: independent re-run is recommended
+            (new chat / different model) plus human expert review. Section 11.
+          </div>
+        )}
+      </div>
+
+      <div className="actions" style={{ marginTop: 16 }}>
+        <button
+          className="primary"
+          disabled={!allHypsCovered || !finalCostSet || !finalRevSet}
+          title={
+            !allHypsCovered
+              ? 'Lock a card with metric, deadline, thresholds, and forecast for each hypothesis'
+              : !finalCostSet || !finalRevSet
+                ? 'Set final cost of error and reversibility'
+                : undefined
+          }
+          onClick={() => {
+            // Only set review dates once if empty; do not recalculate on every continue
+            const dates =
+              d.brief.reviewDates?.length === 3
+                ? d.brief.reviewDates
+                : computeReviewDates(new Date());
+            update({
+              brief: { ...d.brief, reviewDates: dates },
+              step: 'DECIDE',
+            });
+          }}
+        >
+          {en.continue} <ArrowRight size={16} />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function Field({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
+  return (
+    <label className="field">
+      <span>{label}</span>
+      <AutoInput value={value} onChange={(e) => onChange(e.target.value)} />
+    </label>
+  );
+}
+
+function ExperimentCardEditor({
+  exp,
+  d,
+  update,
+  busy,
+  runApi,
+}: {
+  exp: ExperimentCard;
+  d: Decision;
+  update: (p: Partial<Decision> | ((x: Decision) => Decision)) => void;
+  busy: boolean;
+  runApi: (path: string, body: unknown, onOk: (data: any, meta: any) => void) => void;
+}) {
+  const locked = !!exp.lockedAt;
+  const patch = (p: Partial<ExperimentCard>) => {
+    if (locked && !['result', 'resultValue', 'status', 'completedAt', 'startedAt'].some((k) => k in p)) {
+      return;
+    }
+    update({
+      experiments: d.experiments.map((e) => (e.id === exp.id ? { ...e, ...p } : e)),
+    });
+  };
+
+  // EVPI local state
+  const [p, setP] = useState(40);
+  const [G, setG] = useState(100);
+  const [L, setL] = useState(150);
+  const [c, setC] = useState(10);
+  const pNorm = p > 1 ? p / 100 : p;
+  const err = validateEvpiInput(pNorm, G, L, c);
+  const result = !err ? evpi(pNorm, G, L) : null;
+  const range = !err ? evpiRange(pNorm, G, L) : null;
+  const verdict = range ? evpiVerdict(c, range) : null;
+
+  return (
+    <div className="panel" style={{ marginTop: 12 }}>
+      <h3>
+        <FlaskConical size={16} /> Experiment {locked && <Lock size={14} />}
+        {exp.thresholdShiftedAfterStart && ' · threshold shifted'}
+      </h3>
+      <div className="formgrid">
+        <Field label="Why critical" value={exp.whyCritical} onChange={(v) => patch({ whyCritical: v })} />
+        <Field label="Test" value={exp.test} onChange={(v) => patch({ test: v })} />
+        <Field label="Metric" value={exp.metric} onChange={(v) => patch({ metric: v })} />
+        <Field label="Deadline (date)" value={exp.deadline || ''} onChange={(v) => patch({ deadline: v })} />
+        <Field
+          label="Success threshold"
+          value={exp.successThreshold || ''}
+          onChange={(v) => patch({ successThreshold: v })}
+        />
+        <Field
+          label="Stop threshold"
+          value={exp.stopThreshold || ''}
+          onChange={(v) => patch({ stopThreshold: v })}
+        />
+        <Field
+          label="Intermediate outcome"
+          value={exp.intermediateOutcome || ''}
+          onChange={(v) => patch({ intermediateOutcome: v })}
+        />
+        <Field label="If success" value={exp.ifSuccess || ''} onChange={(v) => patch({ ifSuccess: v })} />
+        <Field label="If failure" value={exp.ifFailure || ''} onChange={(v) => patch({ ifFailure: v })} />
+        <Field
+          label="What to do if stopped"
+          value={exp.whatToDoAfterStop || ''}
+          onChange={(v) => patch({ whatToDoAfterStop: v })}
+        />
+        <Field
+          label="What result would make you change your mind? *"
+          value={exp.whatWouldChangeMyMind || ''}
+          onChange={(v) => patch({ whatWouldChangeMyMind: v })}
+        />
+      </div>
+      {exp.thresholdQuestions?.length > 0 && (
+        <div className="alert" style={{ marginTop: 8 }}>
+          Model questions about thresholds (answer with your own numbers above):
+          <ul>
+            {exp.thresholdQuestions.map((q, i) => (
+              <li key={i}>{q}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {exp.validityThreats?.length > 0 && (
+        <div style={{ marginTop: 8 }}>
+          <h4>What could make this test unfair?</h4>
+          {exp.validityThreats.map((t, i) => (
+            <label key={i} style={{ display: 'flex', gap: 8 }}>
+              <input
+                type="checkbox"
+                checked={t.handled}
+                onChange={(e) => {
+                  const validityThreats = exp.validityThreats.map((x, j) =>
+                    j === i ? { ...x, handled: e.target.checked } : x
+                  );
+                  patch({ validityThreats });
+                }}
+              />
+              {t.threat} — mitigation: {t.protection}
+            </label>
+          ))}
+        </div>
+      )}
+
+      {/* Forecast (user only) */}
+      <div className="forecast" style={{ marginTop: 12 }}>
+        <h4>Your forecast</h4>
+        {!locked && (
+          <button
+            className="ghost"
+            style={{ marginBottom: 8 }}
+            disabled={busy}
+            onClick={() =>
+              runApi('/api/forecast-wording', { experiment: exp }, (data) => {
+                if (data?.wording || data?.suggestedWording) {
+                  patch({
+                    forecast: {
+                      wording: data.wording || data.suggestedWording || exp.forecast?.wording || '',
+                      confidence: exp.forecast?.confidence,
+                      rationale: exp.forecast?.rationale,
+                      source: 'USER',
+                    },
+                  });
+                }
+              })
+            }
+          >
+            Help phrase it (model does not set confidence)
+          </button>
+        )}
+        <AutoTextarea
+          placeholder="Forecast wording"
+          value={exp.forecast?.wording || ''}
+          disabled={locked}
+          onChange={(e) =>
+            patch({
+              forecast: {
+                wording: e.target.value,
+                confidence: exp.forecast?.confidence,
+                rationale: exp.forecast?.rationale,
+                source: 'USER',
+              },
+            })
+          }
+          rows={2}
+          style={{ width: '100%' }}
+        />
+        <label style={{ display: 'block', marginTop: 6 }}>
+          Basis
+          <AutoTextarea
+            placeholder="What data/assumptions the forecast rests on"
+            value={exp.forecast?.rationale || ''}
+            disabled={locked}
+            onChange={(e) =>
+              patch({
+                forecast: {
+                  wording: exp.forecast?.wording || '',
+                  confidence: exp.forecast?.confidence,
+                  rationale: e.target.value,
+                  source: 'USER',
+                },
+              })
+            }
+            rows={2}
+            style={{ width: '100%' }}
+          />
+        </label>
+        <div className="forecast-inputs">
+          <label>
+            Confidence % or “low”
+            <input
+              disabled={locked}
+              value={
+                exp.forecast?.confidence === 'LOW_NO_DATA'
+                  ? 'low'
+                  : exp.forecast?.confidence ?? ''
+              }
+              onChange={(e) => {
+                const v = e.target.value.trim();
+                let confidence: number | 'LOW_NO_DATA' | undefined;
+                if (v === '') confidence = undefined;
+                else if (/low|insuffic/i.test(v)) confidence = 'LOW_NO_DATA';
+                else {
+                  const n = Number(v.replace('%', ''));
+                  if (!Number.isFinite(n)) return;
+                  confidence = Math.max(0, Math.min(100, n));
+                }
+                patch({
+                  forecast: {
+                    wording: exp.forecast?.wording || '',
+                    confidence,
+                    rationale: exp.forecast?.rationale,
+                    source: 'USER',
+                  },
+                });
+              }}
+            />
+          </label>
+        </div>
+      </div>
+
+      {/* EVPI */}
+      <div style={{ marginTop: 12, borderTop: '1px solid #1c3044', paddingTop: 12 }}>
+        <h4>Is more information worth it?</h4>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <label>
+            Chance it helps (%)
+            <input type="number" value={p} onChange={(e) => setP(Number(e.target.value))} />
+          </label>
+          <label>
+            Upside if right
+            <input type="number" value={G} onChange={(e) => setG(Number(e.target.value))} />
+          </label>
+          <label>
+            Downside if wrong
+            <input type="number" value={L} onChange={(e) => setL(Number(e.target.value))} />
+          </label>
+          <label>
+            Cost to find out
+            <input type="number" value={c} onChange={(e) => setC(Number(e.target.value))} />
+          </label>
+          <button
+            className="ghost"
+            onClick={() => {
+              setP(40);
+              setG(100);
+              setL(150);
+              setC(10);
+            }}
+          >
+            Use example numbers
+          </button>
+        </div>
+        {result && range && verdict && (
+          <div className="alert" style={{ marginTop: 8 }}>
+            Expected value without more info: {result.evOpen.toFixed(1)}; Value of more info ≈ {result.evpi.toFixed(1)};
+            range {range.min.toFixed(0)}–{range.max.toFixed(0)}. {verdict.text}
+            <br />
+            <small>
+              Rough estimates; risk-neutral assumption; real tests yield incomplete information.
+            </small>
+            {!locked && (
+              <button
+                className="ghost"
+                style={{ marginTop: 6 }}
+                onClick={() =>
+                  patch({
+                    evpi: { p: pNorm, gain: G, loss: L, testCost: c, unit: 'USD' },
+                  })
+                }
+              >
+                Save this estimate
+              </button>
+            )}
+          </div>
+        )}
+        {err && <div className="alert error">{err}</div>}
+      </div>
+
+      {/* Final cost / reversibility */}
+      <div style={{ marginTop: 12 }}>
+        <label>Final cost of error</label>
+        <select
+          value={d.brief.errorCost.final || ''}
+          onChange={(e) =>
+            update({
+              brief: {
+                ...d.brief,
+                errorCost: {
+                  ...d.brief.errorCost,
+                  final: (e.target.value || undefined) as Level | undefined,
+                },
+              },
+            })
+          }
+        >
+          <option value="">—</option>
+          <option value="LOW">low</option>
+          <option value="MEDIUM">medium</option>
+          <option value="HIGH">high</option>
+          <option value="UNKNOWN">unknown</option>
+        </select>
+        <label style={{ marginLeft: 12 }}>Final reversibility</label>
+        <select
+          value={d.brief.reversibility.final || ''}
+          onChange={(e) =>
+            update({
+              brief: {
+                ...d.brief,
+                reversibility: {
+                  ...d.brief.reversibility,
+                  final: (e.target.value || undefined) as Door | 'UNKNOWN' | undefined,
+                },
+              },
+            })
+          }
+        >
+          <option value="">—</option>
+          <option value="TWO_WAY">two-way (can reverse)</option>
+          <option value="ONE_WAY">one-way (costly to reverse)</option>
+          <option value="UNKNOWN">unknown</option>
+        </select>
+      </div>
+
+      {!locked ? (
+        <button
+          className="primary"
+          style={{ marginTop: 12 }}
+          disabled={
+            !exp.metric ||
+            !exp.deadline ||
+            !exp.successThreshold ||
+            !exp.stopThreshold ||
+            !exp.intermediateOutcome ||
+            !exp.ifSuccess ||
+            !exp.ifFailure ||
+            !exp.whatToDoAfterStop ||
+            !exp.whatWouldChangeMyMind ||
+            !exp.forecast?.wording
+          }
+          onClick={() => {
+            if (!exp.whatWouldChangeMyMind?.trim()) {
+              if (!confirm('Empty “what would change your mind” — the test may not be needed. Continue?'))
+                return;
+            }
+            const conf = exp.forecast?.confidence;
+            if (conf === undefined || conf === null || conf === ('' as any)) {
+              alert('Before locking, set confidence (0–100 or “low”). The method requires a forecast with confidence before the test.');
+              return;
+            }
+            if (!exp.forecast?.wording?.trim()) {
+              alert('Before locking, fill in the forecast wording.');
+              return;
+            }
+            const lockedAt = Date.now();
+            // One journal entry per forecast (not three independent Brier rows with the same wording)
+            const hyp =
+              d.hypotheses.find((h) => h.id === exp.hypothesisId)?.text ||
+              exp.whyCritical ||
+              exp.hypothesisId ||
+              '';
+            const dates = d.brief.reviewDates?.length
+              ? d.brief.reviewDates
+              : computeReviewDates();
+            const entry: JournalEntry = {
+              id: uid('j'),
+              createdAt: lockedAt,
+              hypothesis: hyp,
+              forecastWording: exp.forecast?.wording || '',
+              confidence: exp.forecast?.confidence,
+              rationale: exp.forecast?.rationale || '',
+              reviewDate: dates[0],
+              horizonDays: 30,
+              noResultYet: true,
+            };
+            update({
+              experiments: d.experiments.map((e) =>
+                e.id === exp.id
+                  ? {
+                      ...e,
+                      status: 'READY' as const,
+                      lockedAt,
+                      // Persist EVPI if user computed it
+                      evpi: e.evpi,
+                    }
+                  : e
+              ),
+              journal: [...d.journal, entry],
+            });
+          }}
+        >
+          <Lock size={14} /> {en.lockCard}
+        </button>
+      ) : (
+        <div className="actions" style={{ marginTop: 12 }}>
+          <button
+            className="ghost"
+            onClick={() => patch({ status: 'RUNNING', startedAt: Date.now() })}
+          >
+            {en.startTest}
+          </button>
+          <button
+            className="ghost"
+            onClick={async () => {
+              const hash = await cardChecksum(exp);
+              const text = `Experiment Card\n${JSON.stringify(exp, null, 2)}\n\nSHA-256: ${hash}\n(Hash shows the copy was not altered)`;
+              downloadBlob(new Blob([text], { type: 'text/plain' }), `exp_${exp.id}.txt`);
+            }}
+          >
+            Copy for a third party
+          </button>
+          <button
+            className="ghost"
+            onClick={() => {
+              const reason = prompt('Reason for shifting the threshold (required)');
+              if (!reason) return;
+              const neu = prompt('New stop threshold', exp.stopThreshold);
+              if (neu == null) return;
+              patch({
+                stopThreshold: neu,
+                thresholdShiftedAfterStart: true,
+                history: [
+                  ...exp.history,
+                  {
+                    at: Date.now(),
+                    field: 'stopThreshold',
+                    from: exp.stopThreshold || '',
+                    to: neu,
+                    reason,
+                  },
+                ],
+              });
+            }}
+          >
+            Shift threshold
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// --- DECIDE ---
+function DecideScreen({
+  d,
+  update,
+}: {
+  d: Decision;
+  update: (p: Partial<Decision> | ((x: Decision) => Decision)) => void;
+  runApi?: any;
+}) {
+  const hd = d.decision;
+  const setHd = (patch: Partial<HumanDecision>) => {
+    const base: HumanDecision = hd || {
+      kind: 'CHOOSE_OPTION', whatIDecided: '', onWhichValues: '', underWhichData: '',
+      acceptedUncertainties: [], decidedAt: Date.now(),
+    };
+    update({ decision: { ...base, ...patch, decidedAt: base.decidedAt || Date.now() } });
+  };
+
+  return (
+    <div className="friendly-flow">
+      <ExpertStageIntro
+        step="4 · VERIFY"
+        title="Make the decision yours"
+        task="The analysis does not choose for you. Decide what you will do, postpone the decision, or choose one more fact to verify before committing."
+        next="your decision and its grounds will be carried into the final picture."
+      />
+      <AssistantMessage>
+        <p style={{ marginTop: 0 }}>You have seen the main possibilities and the main ways they could fail. I will not choose for you.</p>
+        <p>Tell me, in plain language, what you are going to do now. It is also completely fine to postpone the decision or decide to gather one more fact first.</p>
+        <AutoTextarea
+          value={hd?.whatIDecided || ''}
+          onChange={(e) => setHd({ whatIDecided: e.target.value })}
+          placeholder="What are you going to do now?"
+          rows={4}
+          style={{ width: '100%' }}
+        />
+        <AutoTextarea
+          value={hd?.onWhichValues || ''}
+          onChange={(e) => setHd({ onWhichValues: e.target.value })}
+          placeholder="Why does this make sense for you? (optional)"
+          rows={3}
+          style={{ width: '100%', marginTop: 10 }}
+        />
+        <div className="actions" style={{ marginTop: 12 }}>
+          <button className="primary" disabled={!hd?.whatIDecided?.trim()} onClick={() => {
+            const dates = d.brief.reviewDates?.length > 0 ? d.brief.reviewDates : computeReviewDates(new Date());
+            update({ brief: { ...d.brief, reviewDates: dates }, step: 'SYNTHESIS', interactionState: 'SYNTHESIS_READY' });
+          }}>Continue <ArrowRight size={16} /></button>
+        </div>
+      </AssistantMessage>
+    </div>
+  );
+}
+
+// --- SYNTHESIS ---
+function SynthesisScreen({
+  d,
+  update,
+  runApi,
+  busy,
+}: {
+  d: Decision;
+  update: (p: Partial<Decision> | ((x: Decision) => Decision)) => void;
+  runApi: (path: string, body: unknown, onOk: (data: any, meta: any) => void) => void;
+  busy: boolean;
+}) {
+  return (
+    <div className="panel">
+      <ExpertStageIntro
+        step="4 · VERIFY"
+        title="See the decision in one place"
+        task="This is a summary of what the process found: what is known, what remains uncertain, what could change the decision, and what deserves external checking."
+        next="after reviewing it, continue to Learn so the outcome can be recorded and used in a future cycle."
+      />
+      <h2>Decision map</h2>
+      <button
+        className="primary"
+        disabled={busy}
+        onClick={() =>
+          runApi(
+            '/api/synthesis',
+            {
+              brief: d.brief,
+              options: d.options,
+              hypotheses: d.hypotheses.filter((h) => h.selectedByUser),
+              experiments: d.experiments,
+              decision: d.decision,
+              radar: d.radar,
+              knowledgeMap: d.knowledgeMap,
+              preMortem: d.preMortem,
+            },
+            (data, meta) => {
+              update({
+                synthesis: {
+                  paragraphs: data.paragraphs || ['', '', '', ''],
+                  derivedNumbers: data.derived_numbers || [],
+                  openGaps: data.open_gaps || [],
+                  needsExternalCheck: data.needs_external_check || [],
+                  unverifiedNumbers: [],
+                  meta,
+                },
+              });
+            }
+          )
+        }
+      >
+        Build the current picture
+      </button>
+      {d.synthesis && (
+        <div style={{ marginTop: 16 }}>
+          {d.synthesis.paragraphs.map((p, i) => (
+            <p key={i} style={{ lineHeight: 1.6 }}>
+              {p}
+            </p>
+          ))}
+          {d.synthesis.openGaps?.length > 0 && (
+            <div className="alert">
+              Gaps: {d.synthesis.openGaps.join('; ')}
+            </div>
+          )}
+          {d.synthesis.needsExternalCheck?.length > 0 && (
+            <div className="alert">
+              External check: {d.synthesis.needsExternalCheck.join('; ')}
+            </div>
+          )}
+          <AutoTextarea
+            placeholder="Your notes (optional)"
+            value={d.synthesis.editedByUser || ''}
+            onChange={(e) =>
+              update({
+                synthesis: { ...d.synthesis!, editedByUser: e.target.value },
+              })
+            }
+            rows={4}
+            style={{ width: '100%', marginTop: 12 }}
+          />
+          <div className="actions" style={{ marginTop: 12 }}>
+            <button
+              className="ghost"
+              onClick={() => {
+                const text = [
+                  ...d.synthesis!.paragraphs,
+                  '',
+                  `${en.myDecision}: ${d.decision?.whatIDecided || ''}`,
+                ].join('\n\n');
+                navigator.clipboard?.writeText(text);
+                alert('Copied to clipboard');
+              }}
+            >
+              Copy
+            </button>
+            <button className="primary" onClick={() => update({ step: 'LEARN' })}>
+              {en.continue} <ArrowRight size={16} />
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// --- LEARN ---
+function LearnScreen({
+  d,
+  update,
+  runApi,
+  onNextCycle,
+}: {
+  d: Decision;
+  update: (p: Partial<Decision> | ((x: Decision) => Decision)) => void;
+  runApi: (path: string, body: unknown, onOk: (data: any, meta: any) => void) => void;
+  onNextCycle: () => void;
+}) {
+  const addEntry = () => {
+    const entry: JournalEntry = {
+      id: uid('j'),
+      createdAt: Date.now(),
+      hypothesis: '',
+      forecastWording: '',
+      reviewDate: d.brief.reviewDates?.[0] || computeReviewDates()[0],
+      horizonDays: 30,
+    };
+    update({ journal: [...d.journal, entry] });
+  };
+
+  const brierEntries = d.journal
+    .filter(
+      (j) =>
+        typeof j.confidence === 'number' &&
+        typeof j.outcome === 'boolean' &&
+        j.confidence !== undefined
+    )
+    .map((j) => ({
+      p: (j.confidence as number) > 1 ? (j.confidence as number) / 100 : (j.confidence as number),
+      outcome: (j.outcome ? 1 : 0) as 0 | 1,
+    }));
+  const brier = brierEntries.length ? brierScore(brierEntries) : null;
+
+  return (
+    <div className="panel">
+      <ExpertStageIntro
+        step="5 · LEARN"
+        title="Record what happened"
+        task="Later, compare your forecast with the real result, record what changed your mind, and identify whether the gap came from data, assumptions, reasoning, execution, or chance."
+        next="you can start a new cycle later with the lessons from this one."
+      />
+      <h2>Journal and learning</h2>
+      <button className="ghost" onClick={addEntry}>
+        <Plus size={14} /> Journal entry
+      </button>
+      {d.journal.map((j) => (
+        <div key={j.id} className="question" style={{ marginTop: 10 }}>
+          <AutoInput
+            placeholder="Hypothesis"
+            value={j.hypothesis}
+            disabled={!!j.fact || !!j.reviewedAt}
+            onChange={(e) =>
+              update({
+                journal: d.journal.map((x) =>
+                  x.id === j.id ? { ...x, hypothesis: e.target.value } : x
+                ),
+              })
+            }
+          />
+          <AutoInput
+            placeholder="Forecast (wording)"
+            value={j.forecastWording}
+            disabled={!!j.fact || !!j.reviewedAt}
+            onChange={(e) =>
+              update({
+                journal: d.journal.map((x) =>
+                  x.id === j.id ? { ...x, forecastWording: e.target.value } : x
+                ),
+              })
+            }
+          />
+          <input
+            placeholder="Confidence 0–100 or “low”"
+            value={
+              j.confidence === 'LOW_NO_DATA' ? 'low' : j.confidence ?? ''
+            }
+            disabled={!!j.fact || !!j.reviewedAt}
+            onChange={(e) => {
+              const v = e.target.value.trim();
+              let confidence: number | 'LOW_NO_DATA' | undefined;
+              if (v === '') confidence = undefined;
+              else if (/low/i.test(v)) confidence = 'LOW_NO_DATA';
+              else {
+                const n = Number(v.replace('%', ''));
+                if (!Number.isFinite(n)) return;
+                // store as 0–100; Brier normalizes later
+                confidence = Math.max(0, Math.min(100, n));
+              }
+              update({
+                journal: d.journal.map((x) =>
+                  x.id === j.id ? { ...x, confidence } : x
+                ),
+              });
+            }}
+          />
+          <AutoInput
+            placeholder="Basis"
+            value={j.rationale || ''}
+            disabled={!!j.reviewedAt}
+            onChange={(e) =>
+              update({
+                journal: d.journal.map((x) =>
+                  x.id === j.id ? { ...x, rationale: e.target.value } : x
+                ),
+              })
+            }
+          />
+          <AutoInput
+            placeholder="Fact / result"
+            value={j.fact || ''}
+            disabled={!!j.reviewedAt}
+            onChange={(e) =>
+              update({
+                journal: d.journal.map((x) =>
+                  x.id === j.id ? { ...x, fact: e.target.value, noResultYet: false } : x
+                ),
+              })
+            }
+          />
+          <label>
+            <input
+              type="checkbox"
+              checked={!!j.noResultYet}
+              disabled={!!j.reviewedAt}
+              onChange={(e) =>
+                update({
+                  journal: d.journal.map((x) =>
+                    x.id === j.id
+                      ? {
+                          ...x,
+                          noResultYet: e.target.checked,
+                          // Clearing «result not yet» does not unlock fact after review
+                          ...(e.target.checked ? { fact: undefined, outcome: undefined } : {}),
+                        }
+                      : x
+                  ),
+                })
+              }
+            />{' '}
+            Result not yet
+          </label>
+          <label>
+            Occurred:{' '}
+            <select
+              value={j.outcome === true ? 'yes' : j.outcome === false ? 'no' : ''}
+              disabled={!!j.reviewedAt || !!j.noResultYet}
+              onChange={(e) =>
+                update({
+                  journal: d.journal.map((x) =>
+                    x.id === j.id
+                      ? {
+                          ...x,
+                          outcome:
+                            e.target.value === 'yes'
+                              ? true
+                              : e.target.value === 'no'
+                                ? false
+                                : undefined,
+                        }
+                      : x
+                  ),
+                })
+              }
+            >
+              <option value="">—</option>
+              <option value="yes">yes</option>
+              <option value="no">no</option>
+            </select>
+          </label>
+          <select
+            value={j.errorType || ''}
+            disabled={!!j.reviewedAt}
+            onChange={(e) =>
+              update({
+                journal: d.journal.map((x) =>
+                  x.id === j.id
+                    ? {
+                        ...x,
+                        errorType: (e.target.value || undefined) as JournalEntry['errorType'],
+                      }
+                    : x
+                ),
+              })
+            }
+          >
+            <option value="">What went differently?</option>
+            <option value="DATA">Data</option>
+            <option value="ASSUMPTION">Assumption</option>
+            <option value="REASONING">Reasoning</option>
+            <option value="EXECUTION">Execution</option>
+            <option value="LUCK">Chance</option>
+          </select>
+          <AutoInput
+            placeholder="What I changed or learned"
+            value={j.whatIUpdated || ''}
+            disabled={!!j.reviewedAt}
+            onChange={(e) =>
+              update({
+                journal: d.journal.map((x) =>
+                  x.id === j.id ? { ...x, whatIUpdated: e.target.value } : x
+                ),
+              })
+            }
+          />
+          {!j.reviewedAt && j.fact && j.outcome !== undefined && (
+            <button
+              className="ghost"
+              onClick={() => {
+                runApi(
+                  '/api/review',
+                  { entry: j },
+                  (data) => {
+                    update({
+                      journal: d.journal.map((x) =>
+                        x.id === j.id
+                          ? {
+                              ...x,
+                              reviewedAt: Date.now(),
+                              diagnosisNote: data?.note || data?.questions?.join('; ') || x.diagnosisNote,
+                              discrepancy: data?.discrepancy || x.discrepancy,
+                              // Lock fact after review — clearing the field no longer reopens
+                            }
+                          : x
+                      ),
+                    });
+                  }
+                );
+              }}
+            >
+              Review discrepancy (model)
+            </button>
+          )}
+          {!j.reviewedAt && j.fact && j.outcome !== undefined && (
+            <button
+              className="primary"
+              onClick={() =>
+                update({
+                  journal: d.journal.map((x) =>
+                    x.id === j.id ? { ...x, reviewedAt: Date.now() } : x
+                  ),
+                })
+              }
+            >
+              Lock review
+            </button>
+          )}
+          {j.reviewedAt && (
+            <small style={{ color: '#7f93aa' }}>
+              Review locked · fact cannot be erased to bypass the lock
+            </small>
+          )}
+        </div>
+      ))}
+      {brier && (
+        <div className="alert" style={{ marginTop: 12 }}>
+          Forecast accuracy ≈ {brier.score.toFixed(2)} ({brier.n} forecasts; 0 is perfect, 0.25 is random)
+          {brier.warning && ` · ${brier.warning}`}
+        </div>
+      )}
+      <div className="actions" style={{ marginTop: 16 }}>
+        <button className="primary" onClick={onNextCycle}>
+          {en.nextCycle}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// --- Brief side panel ---
+
+/** True when Decision brief has structured content beyond the first chat line. */
+function isBriefWorthShowing(d: Decision): boolean {
+  const b = d.brief;
+  if (!b) return false;
+  const sections = briefSections(b);
+  if (sections.length === 0) return false;
+  const onlyThin =
+    sections.length === 1 &&
+    sections[0].title === 'Decision' &&
+    sections[0].items.length === 1 &&
+    !(b.facts?.length || b.unknowns?.length || b.values?.length || b.myOptions?.length || b.assumptions?.length || b.constraints?.length || b.goal || b.deadline);
+  if (onlyThin && !d.decision?.whatIDecided) return false;
+  return true;
+}
+
+function BriefPanel({
+  d,
+  onClose,
+}: {
+  d: Decision;
+  onClose: () => void;
+  update?: (p: Partial<Decision> | ((x: Decision) => Decision)) => void;
+}) {
+  const sections = briefSections(d.brief);
+  const doc = decisionToDocument(d);
+  const extraBlocks = (doc.blocks || []).filter((bl: any) => {
+    if (bl.type === 'heading' && /^(Decision|Решение)$/i.test(String(bl.text || ''))) return false;
+    return true;
+  });
+  return (
+    <div className="brief-backdrop" onClick={onClose} role="presentation">
+      <div className="brief-panel brief-panel-full" role="dialog" aria-modal="true" aria-label="Decision brief" onClick={(e) => e.stopPropagation()}>
+        <div className="brief-head">
+          <h2>Decision brief</h2>
+          <button type="button" className="ghost" onClick={onClose} aria-label="Close the decision brief">Close</button>
+        </div>
+        {sections.length === 0 ? (
+          <p className="brief-empty">{BRIEF_EMPTY_TEXT}</p>
+        ) : (
+          sections.map((s) => (
+            <section key={s.title} className="brief-section">
+              <h3>{s.title}</h3>
+              {s.items.length === 1 ? <p>{s.items[0]}</p> : <ul>{s.items.map((it, i) => <li key={i}>{it}</li>)}</ul>}
+            </section>
+          ))
+        )}
+        {extraBlocks.length > 0 && (
+          <div className="brief-section" style={{ marginTop: 16 }}>
+            {extraBlocks.map((bl: any, i: number) =>
+              bl.type === 'heading' ? (
+                <h3 key={i}>{bl.text}</h3>
+              ) : bl.type === 'bullets' ? (
+                <ul key={i}>{((bl.items as string[]) || []).map((it, j) => <li key={j}>{it}</li>)}</ul>
+              ) : (
+                <p key={i}>{bl.text}</p>
+              ),
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
