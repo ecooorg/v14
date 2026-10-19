@@ -276,7 +276,7 @@ export default function ProjectMode() {
   }
 
   const styles: Record<string, React.CSSProperties> = {
-    page: { minHeight: '100vh', background: '#0a0f1a', color: '#e6edf7', fontFamily: 'system-ui, sans-serif', padding: '24px', boxSizing: 'border-box' },
+    page: { minHeight: '100dvh', background: '#0a0f1a', color: '#e6edf7', fontFamily: 'system-ui, sans-serif', padding: '24px 24px calc(24px + env(safe-area-inset-bottom, 0px))', boxSizing: 'border-box' },
     panel: { maxWidth: 1000, margin: '0 auto', background: '#0d1b2e', border: '1px solid #1f4f86', borderRadius: 12, padding: 24 },
     button: { minHeight: 44, padding: '10px 16px', border: '1px solid #3d7fc4', borderRadius: 8, background: '#0b2545', color: '#9fd8ff', cursor: 'pointer' },
     input: { width: '100%', boxSizing: 'border-box', minHeight: 44, padding: 10, border: '1px solid #3d7fc4', borderRadius: 8, background: '#07111f', color: '#e6edf7', fontSize: 16 },
@@ -372,7 +372,7 @@ export default function ProjectMode() {
       <p style={{ fontSize: 13, color: '#8fa6c2' }}>After privacy acknowledgement, bounded readable text and metadata are included in Project analysis. Files not decoded by the reader are preserved but only described by metadata.</p>
       <WorkspacePanel disabled={busy} onAttachmentsChange={setWorkspaceAttachments} />
     </section>}
-    {(error || notice) && <div style={{ position: 'fixed', left: 12, right: 12, bottom: 72, zIndex: 50, display: 'flex', justifyContent: 'center', pointerEvents: 'none' }}>
+    {(error || notice) && <div style={{ position: 'fixed', left: 12, right: 12, bottom: 'calc(72px + env(safe-area-inset-bottom, 0px))', zIndex: 50, display: 'flex', justifyContent: 'center', pointerEvents: 'none' }}>
       <div role={error ? 'alert' : 'status'} style={{ pointerEvents: 'auto', maxWidth: 560, width: '100%', display: 'flex', gap: 12, alignItems: 'flex-start', padding: '12px 14px', borderRadius: 10, boxShadow: '0 4px 20px #000a', border: `1px solid ${error ? '#a33' : '#2e7d52'}`, background: error ? '#3a1216' : '#0f2a1d', color: error ? '#ffb4b4' : '#7fe0a8' }}>
         <span style={{ flex: 1 }}>{error || notice}</span>
         <button type="button" aria-label="Close message" onClick={() => { setError(''); setNotice(''); }} style={{ background: 'none', border: 0, color: 'inherit', fontSize: 20, cursor: 'pointer', lineHeight: 1 }}>×</button>

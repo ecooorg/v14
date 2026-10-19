@@ -26,7 +26,7 @@ export function HistoryPanel(props: {
   return (
     <div role="dialog" aria-label="History" onClick={props.onClose}
       style={{ position: 'fixed', inset: 0, background: '#000a', zIndex: 50, display: 'grid', placeItems: 'start center', padding: '56px 12px 12px', overflow: 'auto' }}>
-      <div className="panel" onClick={(e) => e.stopPropagation()} style={{ width: '100%', maxWidth: 560, maxHeight: '80vh', overflow: 'auto', margin: 0 }}>
+      <div className="panel" onClick={(e) => e.stopPropagation()} style={{ width: '100%', maxWidth: 560, maxHeight: '80dvh', overflow: 'auto', margin: 0 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
           <h2 style={{ margin: 0, fontSize: 18 }}>History</h2>
           <button className="ghost" aria-label="Close history" onClick={props.onClose} style={{ minWidth: 44, minHeight: 44, justifyContent: 'center' }}><X size={16} /></button>

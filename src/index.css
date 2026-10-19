@@ -695,3 +695,24 @@ body {
   min-height: 100dvh;
   background-color: #050b13;
 }
+
+/* Android standalone PWA: the system navigation bar is opaque (white on many devices) and sits over the bottom of
+   the layout viewport. 100vh is taller than the visible area there, so bottom buttons ended up behind the bar.
+   Use the dynamic viewport height and keep content clear of the bottom safe-area inset. */
+.shell {
+  min-height: 100vh;
+  min-height: 100dvh;
+  box-sizing: border-box;
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+#root {
+  box-sizing: border-box;
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+.pf-modal, .brief-backdrop {
+  padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+}
+.brief-panel-full { max-height: 92vh; max-height: 92dvh; }
+@media (max-width:640px){
+  .brief-panel-full { max-height: 100vh; max-height: 100dvh; }
+}
