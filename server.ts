@@ -1570,6 +1570,7 @@ function conversationGainAudit(out: any, contextSufficiency: string) {
 import { detectUserIntentFlags, isLimitationOnlyReply, informationSoftFail, informationRetryHint } from './server/intentFlags.ts';
 import { shouldRunVerifier, runEpistemicVerifier, skippedEpistemic } from './server/epistemicVerifier.ts';
 import { detectConversationMode, modeParagraph, type ConversationMode } from './server/conversationMode.ts';
+import { retryDriftedToOpening } from './server/turnFocus.ts';
 
 // Token Economy v1.6: the conversation state already carries durable facts, assumptions,
 // unknowns and hypotheses. Keep only the most recent turns in the raw transcript so older
@@ -1697,7 +1698,7 @@ app.post('/api/conversation', async (req, res) => {
       returningAfterDays: Number.isFinite(Number(returningAfterDays)) && Number(returningAfterDays) >= 1 ? Math.min(Math.floor(Number(returningAfterDays)), 365) : undefined,
       distressMarkerDetected: distressMarkerDetected || undefined,
     };
-    const input = JSON.stringify({ brief, history: safeHistory, state: safeState, context });
+    const input = JSON.stringify({ brief, currentUserMessage: lastUserText, history: safeHistory, state: safeState, context });
     if (input.length > MAX_BODY) return fail(res, 400, 'Text too long', 'TOO_LONG');
     // Attachments: text the client already holds, plus files the model must look at on this turn (kept in memory by /api/attach).
     const attachParts: any[] = [];
@@ -1829,7 +1830,12 @@ The person demanded a direct answer and forbade methodology or lecturing. Open w
         const retry = await generate(retryPrompt, input, 'strong', 'conversation-retry', 1, requestByokKey, requestPreferredModel, callBudget, genOpts);
         const retryOut = retry.data as any;
         const firstMeta = meta;
-        if (retryOut?.reply && typeof retryOut.reply === 'string') {
+        // A "rewrite from scratch" draft must answer the latest message. If it drifted back to the opening message
+        // of the conversation (brief.decision) while the first draft did not, keep the first draft.
+        const retryDrifted = typeof retryOut?.reply === 'string' && typeof out?.reply === 'string'
+          && retryDriftedToOpening(out.reply, retryOut.reply, lastUserText, String(brief.decision || ''));
+        console.info(JSON.stringify({ type: 'conversation_retry', reason: infoRetry ? 'information_soft_fail' : 'gain_audit', kept_first: retryDrifted, user_turns: userTurns }));
+        if (!retryDrifted && retryOut?.reply && typeof retryOut.reply === 'string') {
           data = retry.data;
           const sumOpt = (a?: number, b?: number) => (a === undefined && b === undefined ? undefined : (a || 0) + (b || 0));
           const inTokSum = sumOpt(firstMeta.inputTokens, retry.meta.inputTokens);

@@ -33,13 +33,14 @@
     "test:gates": "node --import tsx --test --test-timeout=60000 --test-force-exit tests/gates.test.mjs",
     "test:pipeline": "node --import tsx --test --test-timeout=60000 --test-force-exit tests/pipeline.test.mjs",
     "test:web": "node --import tsx --test --test-timeout=60000 --test-force-exit tests/web-and-epistemics.test.mjs",
+    "test:turn": "node --import tsx --test --test-timeout=60000 --test-force-exit tests/conversation-turn.test.mjs",
     "test:regression": "node --import tsx --test --test-timeout=60000 --test-force-exit tests/regression.test.mjs",
-    "test": "npm run test:core && npm run test:models && npm run test:security && npm run test:files && npm run test:workspace && npm run test:database && npm run test:integrations && npm run test:project && npm run test:gates && npm run test:pipeline && npm run test:web && npm run test:regression",
+    "test": "npm run test:core && npm run test:models && npm run test:security && npm run test:files && npm run test:workspace && npm run test:database && npm run test:integrations && npm run test:project && npm run test:gates && npm run test:pipeline && npm run test:web && npm run test:turn && npm run test:regression",
     "test:live": "RUN_LIVE_TESTS=true node --import tsx --test --test-timeout=120000 --test-force-exit --test-concurrency=1 tests/database.test.mjs tests/integrations.test.mjs tests/project-mode.test.mjs tests/gates.test.mjs",
     "test:database:live": "RUN_LIVE_TESTS=true node --import tsx --test --test-timeout=120000 --test-force-exit --test-concurrency=1 tests/database.test.mjs",
     "test:bx06:api": "RUN_BX06_API=true node --import tsx --test --test-timeout=120000 --test-force-exit --test-concurrency=1 tests/project-mode.test.mjs",
     "test:ui": "node --import tsx tests/ui-check.mjs",
-    "check": "node scripts/check-version.mjs && npm run check:docs && npm run lint:copy && npm run typecheck && npm run test:core && npm run test:models && npm run test:security && npm run test:files && npm run test:workspace && npm run test:database && npm run test:integrations && npm run test:project && npm run test:gates && npm run test:pipeline && npm run test:web && npm run test:regression"
+    "check": "node scripts/check-version.mjs && npm run check:docs && npm run lint:copy && npm run typecheck && npm run test:core && npm run test:models && npm run test:security && npm run test:files && npm run test:workspace && npm run test:database && npm run test:integrations && npm run test:project && npm run test:gates && npm run test:pipeline && npm run test:web && npm run test:turn && npm run test:regression"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
