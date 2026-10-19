@@ -54,7 +54,7 @@ The source `docs/STATUS.md` on the snapshot says CI confirmation, deployment of 
 
 ## 8.6 Rollback
 
-Application rollback is redeploying the previous known-good build/commit; database rollback is a separate operation. Follow `docs/OPS_ROLLBACK.md` and preserve expand/contract compatibility. Do not reverse migrations casually in production. If a deployment breaks readiness, capture sanitized diagnostics, stop further changes, and use the owner-approved rollback procedure.
+Application rollback is redeploying the previous known-good build/commit; database rollback is a separate operation. Preserve expand/contract compatibility. Do not reverse migrations casually in production. If a deployment breaks readiness, capture sanitized diagnostics, stop further changes, and use the owner-approved rollback procedure.
 
 ## 8.7 Backup and restore
 
