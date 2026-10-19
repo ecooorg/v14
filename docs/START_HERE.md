@@ -2,13 +2,13 @@
 
 > **Progress and “what’s next”:** [`docs/STATUS.md`](./STATUS.md) only.  
 > **Agent rules:** [`AGENTS.md`](../AGENTS.md).  
-> **Canonical product docs:** English set indexed in [`docs/README.md`](./README.md).
+> **Canonical product docs:**  [`docs/README.md`](./README.md).
 
 ## In 30 seconds
 
 1. BiForge is a decision and project agent (Node/Express + React + model providers), deployable on Railway.
 2. Modes: **Simple**, **Expert**, **Project**.
-3. Canonical documentation is **English only**, under `docs/` (`01`–`15` + STATUS). Russian TZ and historical patch SPECs are not in this repository.
+3. Canonical documentation  `docs/` (`01`–`15` + STATUS).
 4. Before any change: `docs/STATUS.md` → `AGENTS.md` → authorised scope → code.
 5. Every patch deliverable is a ZIP of **changed/new files only** (see `AGENTS.md` §5).
 6. Deploy notes: [`DEPLOY_RAILWAY.md`](../DEPLOY_RAILWAY.md).
