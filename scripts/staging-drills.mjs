@@ -103,7 +103,7 @@ export async function collectStagingEvidence({ env = process.env, fetcher = fetc
     status: 'NOT_RUN',
     detail: 'requires the full Project Mode scenario and/or owner evidence; this read-only collector does not claim it passed',
   }));
-  checks.push(check('restore_drill', 'NOT_RUN', 'no backup restore was initiated; follow docs/OPS_ROLLBACK.md on a disposable database'));
+  checks.push(check('restore_drill', 'NOT_RUN', 'no backup restore was initiated; follow docs/08-Deployment-and-Runbook.md section 8.7 on a disposable database'));
   checks.push(check('rollback_drill', 'NOT_RUN', 'no deployment or rollback was initiated; perform the staging drill manually'));
   checks.push(check('capacity_acceptance', 'NOT_RUN', 'health endpoint probe is not a full capacity/load acceptance test'));
 
