@@ -49,6 +49,13 @@ test('P56 every test script is part of the check chain or a separate CI step', (
   for (const name of SEPARATE_CI_STEPS) assert.ok(pkg[name], `separate CI step ${name} is missing`);
 });
 
+test('P56 no npm script uses --test-force-exit (it silently drops tests that register after an await)', () => {
+  // The grouped test files register tests after top-level `await import(...)`. --test-force-exit kills the process as soon as the
+  // tests registered so far finish, so a varying share of the suite never ran (and never failed) in CI.
+  const bad = Object.entries(pkg).filter(([, cmd]) => /--test-force-exit/.test(String(cmd))).map(([name]) => name);
+  assert.deepEqual(bad, [], `Remove --test-force-exit from: ${bad.join(', ')}`);
+});
+
 test('P56 nothing was dropped from the check chain', () => {
   const chain = new Set([...pkg.check.matchAll(/npm run ([\w:-]+)/g)].map((m) => m[1]));
   const dropped = manifest.checkChain.filter((n) => !chain.has(n));

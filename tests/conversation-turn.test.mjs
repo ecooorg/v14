@@ -34,7 +34,7 @@ test('first turn (latest message is the opening message) is never treated as dri
 });
 
 test('every conversation prompt names the latest message as the answer target', () => {
-  const input = JSON.stringify({ brief: { decision: OPENING }, currentUserMessage: LATEST, history: [] });
+  const input = JSON.stringify({ brief: { decision: OPENING }, history: [{ role: 'user', content: LATEST }] });
   for (const mode of ['information', 'decision']) {
     for (const productMode of ['Simple', 'Expert']) {
       const p = buildSimpleConversationPrompt(input, '', '', '2026-10-19', mode, productMode);
@@ -42,12 +42,12 @@ test('every conversation prompt names the latest message as the answer target', 
       assert.ok(p.indexOf(ANSWER_TARGET_RULE) < p.indexOf('User brief and conversation:'));
     }
   }
-  assert.match(ANSWER_TARGET_RULE, /currentUserMessage/);
+  assert.match(ANSWER_TARGET_RULE, /last entry with role "user" in "history"/);
 });
 
-test('server wires the latest message into the model input and guards the retry', () => {
+test('server guards the retry and does not duplicate the latest message in the model input (Token Economy)', () => {
   const src = fs.readFileSync(new URL('../server.ts', import.meta.url), 'utf8');
-  assert.match(src, /JSON\.stringify\(\{ brief, currentUserMessage: lastUserText,/);
+  assert.doesNotMatch(src, /currentUserMessage/);
   assert.match(src, /retryDriftedToOpening\(out\.reply, retryOut\.reply, lastUserText/);
   assert.match(src, /if \(!retryDrifted && retryOut\?\.reply/);
 });

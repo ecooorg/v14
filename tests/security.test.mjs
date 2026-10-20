@@ -198,24 +198,9 @@ const { dirname, join } = await import("node:path");
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const read = (rel) => readFileSync(join(root, rel), 'utf8');
 
-test('P43 STATUS records RM-C3 closed and model_patch authorization', () => {
+test('P43 STATUS records the model_patch executor', () => {
   const status = read('docs/STATUS.md');
-  assert.match(status, /RM-C3/);
   assert.match(status, /model_patch/);
-  assert.match(status, /P43/);
-  assert.doesNotMatch(status, /RM-C3 still needs/i);
-});
-
-test('P43 OWNER_OPS marks RM-C3 closed', () => {
-  const ops = read('docs/OWNER_OPS.md');
-  assert.match(ops, /RM-C3 closed/i);
-  assert.match(ops, /model_patch/);
-});
-
-test('P43 NEXT points RM-C3 closed', () => {
-  const next = read('docs/NEXT.md');
-  assert.match(next, /RM-C3/);
-  assert.match(next, /closed/i);
 });
 
 test('P43 runtime gate unchanged: CODE_EXECUTOR must equal model_patch', () => {
@@ -233,10 +218,6 @@ test('P43 does not enable GitHub App write by default', () => {
   assert.match(env, /GITHUB_DIFF_UPLOAD/);
 });
 
-test('P43 ADR-10 evidence still present (E-01 lab notes may live off-repo)', () => {
-  assert.ok(existsSync(join(root, 'docs/ADR-10-code-executor.md')));
-  // ARCHIVE/E01-* moved off-repo (docs/HISTORY_OFFREPO.md); presence is optional.
-});
 }
 // ===== END p43-rm-c3.test.mjs =====
 

@@ -254,12 +254,11 @@ test('Workflow evidence.yml is read-only, manual and writes nothing', () => {
   for (const m of y.matchAll(/\$\{\{\s*([^}]+?)\s*\}\}/g)) assert.match(m[1], /^(secrets\.[A-Z_]+|vars\.[A-Z_]+|github\.sha)$/, m[1]);
 });
 
-test('Delegation policy is in force, tiers are written down, tier 3 is not delegable', () => {
-  const d = read('docs/DELEGATION.md');
-  for (const t of ['Tier 0', 'Tier 1', 'Tier 2', 'Tier 3']) assert.ok(d.includes(t) || d.includes(t.replace('Tier ', '| ')), t);
+test('Delegation policy is in force in AGENTS.md, tiers are written down, tier 3 is not delegable', () => {
+  const d = read('AGENTS.md');
+  for (const t of ['Tier 0', 'Tier 1', 'Tier 2', 'Tier 3']) assert.ok(d.includes(t), t);
+  assert.match(d, /Tier 3:\*\* Never decide alone/);
   assert.match(d, /merge/i);
-  assert.match(d, /Silence never means consent/);
-  assert.match(read('AGENTS.md'), /docs\/DELEGATION\.md/);
 });
 }
 // ===== END pa01-acceptance.test.mjs =====

@@ -266,7 +266,14 @@ console.log('mp3 all unit checks passed');
 
 // ===== BEGIN p55-test-round1.test.mjs =====
 {
-const test = (await import("node:test")).default;
+const __rawTest = (await import("node:test")).default;
+// These tests replace globalThis.fetch with a fake Drive and install browser shims. The grouped file continues with blocks that talk
+// to a real spawned server through fetch, so every test restores fetch when it ends and the block waits for all of its tests
+// before the next block starts. Without this, later blocks (perf, pi01, stage2) silently got the fake fetch.
+const __realFetch = globalThis.fetch;
+const __had = { window: 'window' in globalThis, sessionStorage: 'sessionStorage' in globalThis, localStorage: 'localStorage' in globalThis };
+const __pending = [];
+const test = (name, fn) => { __pending.push(__rawTest(name, async (...args) => { try { return await fn(...args); } finally { globalThis.fetch = __realFetch; } })); };
 const assert = (await import("node:assert/strict")).default;
 const { readFileSync } = await import("node:fs");
 
@@ -502,6 +509,9 @@ test('P55 Project mode has Drive buttons and nothing uploads silently', () => {
   assert.doesNotMatch(pm, /void mirrorTextFile\(meta/, 'opening a file no longer uploads it behind the person\'s back');
   assert.match(pm, /mirrorTextFile\(a\.filename, t\.text \|\| '', 'project'/);
 });
+await Promise.all(__pending);
+globalThis.fetch = __realFetch;
+for (const k of ['window', 'sessionStorage', 'localStorage']) if (!__had[k]) delete globalThis[k];
 }
 // ===== END p55-test-round1.test.mjs =====
 

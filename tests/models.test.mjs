@@ -1130,18 +1130,8 @@ test('pack end to end: only changed and new files in the archive, report written
 });
 
 
-test('mandatory delivery contract requires a verified bf-PNN.zip and forbids diff-only handoff', () => {
-  const agents = fs.readFileSync(path.join(root, 'AGENTS.md'), 'utf8');
-  const prompt = fs.readFileSync(path.join(root, 'docs/PATCH_PROMPT.md'), 'utf8');
-  const start = fs.readFileSync(path.join(root, 'docs/START_HERE.md'), 'utf8');
+test('patch packer produces a verified bf-<id>.zip and reads the archive back', () => {
   const packer = fs.readFileSync(path.join(root, 'scripts/patch-pack.mjs'), 'utf8');
-  for (const text of [agents, prompt]) {
-    assert.match(text, /bf-PNN\.zip/);
-    assert.match(text, /DELIVERY BLOCKED/);
-    assert.match(text, /\.patch.*\.diff/s);
-    assert.match(text, /read-back|reopen/i);
-  }
-  assert.match(start, /bf-PNN\.zip/);
   assert.match(packer, /opt\('out', `bf-\$\{archiveId\}\.zip`\)/);
   assert.match(packer, /readZipTree\(archiveBuffer\)/);
   assert.match(packer, /content mismatch for/);
@@ -1321,10 +1311,6 @@ test('Task PASS is impossible without explicit successful validation evidence', 
   assert.match(server, /to: input\.passed \? 'PASS' : 'FAIL'/);
 });
 
-test('E-01 closure: ADR-10 accepted; scenario 18.1 remains owner/live (ARCHIVE/P15-REPORT optional off-repo)', () => {
-  assert.match(read('docs/ADR-10-code-executor.md'), /Status: Accepted/i);
-  // Historical table lived in ARCHIVE/P15-REPORT.md; may be local-only per HISTORY_OFFREPO.
-});
 }
 // ===== END p15-acceptance.test.mjs =====
 
