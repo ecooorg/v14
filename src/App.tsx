@@ -841,11 +841,7 @@ function Header(props: {
             ? <button className="ghost" disabled title="Private or restricted mode: this browser cannot save history on the device"><HistoryIcon size={14} /> <span className="lbl">History unavailable</span></button>
             : <button className="ghost" onClick={props.onHistory} title="Open past dialogues on this device"><HistoryIcon size={14} /> <span className="lbl">History</span></button>
         )}
-        {props.expertMode && props.onBrief && (
-          <button className="ghost" onClick={props.onBrief} title="Short overview of this decision">
-            <SlidersHorizontal size={14} /> <span className="lbl">Decision brief</span>
-          </button>
-        )}
+        {/* Decision brief lives in the More menu (not a header button): six header buttons pushed More onto a second row. */}
         <div className="hdr-more-wrap" ref={moreRef}>
           <button className="ghost hdr-more-btn" title="Export, import, Project workspace, API key, and other tools" aria-expanded={moreOpen} onClick={() => setMoreOpen((v) => !v)}>
             <MoreHorizontal size={14} /> <span className="lbl">More</span>
@@ -909,7 +905,7 @@ function Header(props: {
               </button>
             )}
             {props.expertMode && props.onBrief && (
-              <button type="button" className="ghost" role="menuitem" onClick={() => { setMoreOpen(false); props.onBrief?.(); }} title="Short overview of this decision">Decision brief</button>
+              <button type="button" className="ghost" role="menuitem" onClick={() => { setMoreOpen(false); props.onBrief?.(); }} title="Short overview of this decision"><SlidersHorizontal size={14} /> Decision brief</button>
             )}
             {props.expertMode && props.onDelete && (
               <button type="button" className="ghost danger" role="menuitem" aria-label="Delete" onClick={() => { setMoreOpen(false); props.onDelete?.(); }}>

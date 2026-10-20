@@ -716,3 +716,11 @@ body {
 @media (max-width:640px){
   .brief-panel-full { max-height: 100vh; max-height: 100dvh; }
 }
+
+/* More dropdown: anchor it to the whole button bar, not to the More button itself. If the bar ever wraps (narrow screen,
+   long labels) More can sit at the left edge, and a menu anchored to its right edge was cut off on the left. */
+@media(max-width:900px){
+  .header-actions{position:relative}
+  .hdr-more-wrap{position:static}
+  .hdr-more-wrap .hdr-secondary{right:0;left:auto;top:calc(100% + 6px);max-width:min(340px,calc(100vw - 16px))}
+}
