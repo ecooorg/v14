@@ -41,6 +41,7 @@ import { isGateName } from './server/gateEngine.ts';
 import { approveCodePackage, cancelCodeTask, commitApprovedPackage, decideCodeTask, exportPackage, generatedSourceArtifactId, getCodeTask, listCodeTasks, listProjectCodeTasks, refreshCodeTask, requestRepair, runCodeTaskReview, startCodeTask, submitCodeResult, driveModelPatch } from './server/codeTaskService.ts';
 import { buildTaskPackageFromBrief } from './server/briefWriter.ts';
 import { routeCall, newRouterState } from './server/router.ts';
+import { startKeepAlive } from './server/keepAlive.ts';
 
 dotenv.config();
 
@@ -2801,10 +2802,12 @@ async function start() {
   }
   let httpServer: import('node:http').Server | undefined;
   let shuttingDown = false;
+  let stopKeepAlive: (() => void) | undefined;
   // Registering a SIGTERM handler removes Node's default exit, so the handler must finish the shutdown itself.
   const shutdown = async () => {
     if (shuttingDown) return;
     shuttingDown = true;
+    stopKeepAlive?.();
     const force = setTimeout(() => process.exit(0), 10_000);
     force.unref();
     try { if (projectWorker) await projectWorker.stop(); } catch (e) { console.error('Worker stop failed', e); }
@@ -2829,6 +2832,8 @@ async function start() {
   }
   httpServer = app.listen(PORT, () => {
     console.log(`BiForge v${APP_VERSION} (${(process.env.RAILWAY_GIT_COMMIT_SHA || 'unknown').slice(0, 12)}) on :${PORT} (${NODE_ENV})`);
+    // Render free tier: имитация визитов живого пользователя, чтобы сервис не засыпал.
+    if (NODE_ENV === 'production') stopKeepAlive = startKeepAlive();
   });
 }
 
