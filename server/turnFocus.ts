@@ -8,7 +8,7 @@
  */
 
 /** One block added to the user section of every conversation prompt. */
-export const ANSWER_TARGET_RULE = `ANSWER TARGET: Answer the person's LATEST message, given in "currentUserMessage" (it is also the last "user" entry of "history"). "brief.decision" is only how the conversation began: do not answer it again unless the latest message asks for that. Use "history" for what was already said, and do not repeat an earlier answer.`;
+export const ANSWER_TARGET_RULE = `ANSWER TARGET: Answer the person's LATEST message: the last entry with role "user" in "history". "brief.decision" is only how the conversation began: do not answer it again unless the latest message asks for that. Use the earlier "history" entries for what was already said, and do not repeat an earlier answer.`;
 
 const STOP = new Set([
   'этот', 'этого', 'этом', 'который', 'которая', 'которые', 'какие', 'какой', 'какая', 'если', 'чтобы', 'когда', 'тоже', 'очень',
