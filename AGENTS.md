@@ -62,7 +62,7 @@ These instructions define the default working rules for coding agents. If an ins
 - Do not commit secrets, API keys, or real credentials.
 - Do not enable GitHub write, silent merge to main, or production deploy without explicit owner authorisation.
 - Do not change application behaviour in a documentation-only patch.
-- Do not reintroduce retired Russian TZ or historical P*-SPEC files into the repository.
+- Do not reintroduce retired or historical P*-SPEC files into the repository.
 - Do not claim a test passed if it did not run, or a dependency is present if install failed.
 - Do not expand scope beyond the authorised patch.
 
