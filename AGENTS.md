@@ -31,7 +31,7 @@ This repository contains **BiForge**, a multi-model project agent that ships Sim
 | `docs/STATUS.md` | Living progress pointer |
 | `docs/START_HERE.md` | 30-second onboarding |
 
-All previous Russian specifications (BiForge_TZ_v3.md, BiForge_TZ_P26.md), patch SPECs/REPORTs, and historical plans are **retired from the repository**. They may exist only in the owner’s local archives. Do not treat retired material as current requirements.
+All previous specifications, patch SPECs/REPORTs, and historical plans are **retired from the repository**. They may exist only in the owner’s local archives. Do not treat retired material as current requirements.
 
 These instructions define the default working rules for coding agents. If an instruction appears to conflict with an approved owner decision or the canonical documentation, stop and report the conflict instead of silently choosing one.
 
