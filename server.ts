@@ -1698,7 +1698,7 @@ app.post('/api/conversation', async (req, res) => {
       returningAfterDays: Number.isFinite(Number(returningAfterDays)) && Number(returningAfterDays) >= 1 ? Math.min(Math.floor(Number(returningAfterDays)), 365) : undefined,
       distressMarkerDetected: distressMarkerDetected || undefined,
     };
-    const input = JSON.stringify({ brief, currentUserMessage: lastUserText, history: safeHistory, state: safeState, context });
+    const input = JSON.stringify({ brief, history: safeHistory, state: safeState, context });
     if (input.length > MAX_BODY) return fail(res, 400, 'Text too long', 'TOO_LONG');
     // Attachments: text the client already holds, plus files the model must look at on this turn (kept in memory by /api/attach).
     const attachParts: any[] = [];
