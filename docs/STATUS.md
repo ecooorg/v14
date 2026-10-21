@@ -1,36 +1,27 @@
-# BiForge Builder — STATUS
+# BiForge — STATUS
 
-> Starter tree for testing **pipeline-first** generation (IR → scaffold → ZIP).  
-> Version: `APP_VERSION` in `src/config.ts` (= `package.json`). Product line: **builder**.
+> Progress pointer. Product version lives only in `src/config.ts` (`APP_VERSION`) and must match `package.json`.
 
 ## 1. Current status
 
 | Workstream | Status |
 | --- | --- |
-| **Version** | `57` — single source: `src/config.ts` + `package.json` |
-| **Simple / Expert** | Unchanged conversation modes |
-| **Project generation** | Default `POST /code/build` uses **pipeline** (`server/appBuilder`) |
-| **Code delivery** | Scaffold ZIP without requiring the model; optional slice if `CODE_EXECUTOR=model_patch` and `APP_BUILDER_MODEL_SLICE=true`; legacy `engine: "model_patch"` still available |
-| **GitHub write** | Deferred (ADR-06); off by default; `GITHUB_DIFF_UPLOAD` opt-in only |
-| **Deploy BiForge itself** | `docs/DEPLOY.md` (any host) |
-| **Structure** | No host-specific deploy filename in repo root |
+| **Version** | Single source: `src/config.ts` + `package.json` |
+| **Simple / Expert** | Stable |
+| **Project** | Simple words / Professional paths; `/code/build` generation |
+| **Code delivery** | `model_patch` when `CODE_EXECUTOR=model_patch`; source ZIP only; generated code is not executed on the BiForge host |
+| **GitHub write** | Deferred (ADR-06); off by default; enable only via explicit `GITHUB_DIFF_UPLOAD` |
+| **Deploy** | Host-agnostic operator guide: `docs/DEPLOY.md` |
 
-## 2. How generation works
+## 2. Out of repository
 
-```
-wizard / goal → App IR → resolve stack → materialize scaffold
-  → optional model slice → ZIP (README + BIFORGE-IR.json)
-  → human uploads to GitHub / host manually
-```
+Helper names inside generated program ZIPs are archive contents, not paths in this repo.
 
-## 3. Out of repository
+## 3. Owner authorisation required
 
-Strings like DEPLOY-MANUAL.md inside generated ZIPs are archive contents, not paths here.
+GitHub App write; running generated code on the BiForge server; production secret rotation.
 
-## 4. Owner authorisation
+## 4. Docs
 
-GitHub App write; executing generated code on the BiForge host.
-
-## Docs
-
-- Changelog: only `CHANGELOG.md`. The old `CHANGELOG_AGENT_BEHAVIOR.md` name is retired and must not be recreated.
+- Product history: only `CHANGELOG.md` at repo root.
+- The old agent-behaviour changelog file is retired; do not recreate it.
