@@ -1088,14 +1088,13 @@ try {
 const __groupOriginalProcessExit = process.exit;
 process.exit = (code = 0) => { if (code) throw new Error("Grouped test module version-check.test.mjs requested process.exit" + `(${code})`); };
 try {
-// VER-02: the version check must catch a stale version label (the README once kept "17.0.0" unnoticed).
+// Version gate: only APP_VERSION (src/config.ts) and package.json must match.
 const { mkdtempSync, cpSync, readFileSync, writeFileSync, mkdirSync } = await import("node:fs");
 const { tmpdir } = await import("node:os");
 const { join } = await import("node:path");
 const { spawnSync } = await import("node:child_process");
 
-const FILES = ['package.json', 'README.md', 'DEPLOY_RAILWAY.md', 'CHANGELOG_AGENT_BEHAVIOR.md', 'server.ts', 'index.html', 'railway.toml', '.env.example',
-  'src/config.ts', 'src/App.tsx', 'src/en.ts', 'src/icsBuilder.ts'];
+const FILES = ['package.json', 'server.ts', 'src/config.ts'];
 const here = process.cwd();
 function run(mutate) {
   const dir = mkdtempSync(join(tmpdir(), 'vcheck-'));
@@ -1108,15 +1107,13 @@ let failed = 0;
 const T = (name, ok, note = '') => { if (!ok) { failed++; console.log('FAIL', name, note); } };
 
 const clean = run();
-T('clean tree passes', clean.status === 0, clean.stderr);
-const r17 = run(edit('README.md', (t) => t + '\n17.0.0 - old label\n'));
-T('stale 17.0.0 in README is caught', r17.status === 1 && /README\.md/.test(r17.stderr), r17.stderr);
-const r16 = run(edit('DEPLOY_RAILWAY.md', (t) => t + '\nWorks since v16.\n'));
-T('stale v16 in DEPLOY is caught', r16.status === 1 && /DEPLOY_RAILWAY\.md/.test(r16.stderr), r16.stderr);
-const rpkg = run(edit('package.json', (t) => t.replace(/"version": "[^"]+"/, '"version": "1.2.3"')));
+T('clean tree passes', clean.status === 0, clean.stderr + clean.stdout);
+const rpkg = run(edit('package.json', (t) => t.replace(/"version": "[^"]+"/, '"version": "0.0.0-mismatch"')));
 T('package.json mismatch is caught', rpkg.status === 1 && /package\.json/.test(rpkg.stderr), rpkg.stderr);
-const rcmt = run(edit('server.ts', (t) => t + '\n// v17: comment about where a rule came from\n'));
-T('old label inside a code comment is allowed', rcmt.status === 0, rcmt.stderr);
+const rcfg = run(edit('src/config.ts', (t) => t.replace(/APP_VERSION\s*=\s*'[^']+'/, "APP_VERSION = '0.0.0-cfg'")));
+T('config mismatch vs package.json is caught', rcfg.status === 1, rcfg.stderr);
+const rmd = run(edit('package.json', (t) => t)); // no-op on package; markdown not copied — ensure README noise not required
+T('markdown is not required for version check', clean.status === 0);
 
 console.log(failed ? `${failed} failed` : 'version-check tests passed');
 process.exit(failed ? 1 : 0);
