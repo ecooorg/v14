@@ -1,48 +1,26 @@
 # BiForge — STATUS
 
-> The single authoritative progress file. Updated: 2026-10-20 · **v55**  
+> The single authoritative progress file. Updated: 2026-10-21 · **v56**  
 > Canonical documentation: English set under `docs/` (this repository).
 
 ## 1. Current status
 
 | Workstream | Status |
 | --- | --- |
-| **Version** | **55** (`APP_VERSION`, `package.json`) |
-| **Documentation** | **Canonical English set adopted** (this patch). Retired Russian TZ and historical P*-SPEC/REPORT removed from the repository (owner local archives only). |
-| **Modes** | Simple / Expert / Project implemented in tree |
-| **Latency (P57)** | Quality-retry guard, verifier wait and older-message cut added behind env values; measure with the `conversation_timing` log line before further prompt work |
-| **Code Delivery** | `model_patch`; runtime env-gated; GitHub write deferred |
-| **QA** | Offline suite present; full `npm ci` / `check` / MANUAL1 not fully verified in the documentation audit environment |
-| **Open product gaps** | See `docs/12-Documentation-Migration-and-Open-Decisions.md` and section 3 below |
+| **Version** | **56** (`APP_VERSION`, `package.json`) |
+| **Simple / Expert** | **Unchanged** (no conversation/prompt edits in this release) |
+| **Project UX (P58)** | Two paths: Simple words + Professional; deploy instructions in UI |
+| **Project generation (P58 server)** | `/code/build` uses App Builder limits (default 80 files / 8000 lines, env-overridable); richer code_author prompt; ZIP always includes `DEPLOY-MANUAL.md` |
+| **GitHub / Render** | Still **manual only** — no auto push or auto deploy |
+| **Open** | Full baked-in stack template packs; MANUAL1 acceptance |
 
 ## 2. Next (owner-driven)
 
-| # | Item | Notes |
-| --- | --- | --- |
-| 1 | Restore full dependency install | `npm ci` from `package-lock.json` in an environment with registry access |
-| 2 | Green `npm run check` and `npm run build` | Fix only issues confirmed after dependencies are present |
-| 3 | PostgreSQL migrations + contract tests | Requires `DATABASE_URL` |
-| 4 | MANUAL1 | Full owner acceptance (Simple / Expert / Project, Drive, delivery) |
-| 5 | ADR-12 decision | Implement server-side archive unpack **or** formally amend to browser-only Workspace |
-| 6 | Production deploy confirmation | Whether v55 is live; GitHub App remains read-only until authorised |
+1. Apply patch; set `CODE_EXECUTOR=model_patch` where generation is wanted.
+2. Smoke Simple/Expert + both Project paths + one `/code/build`.
+3. Optional: tune `CODE_APP_BUILDER_MAX_FILES` / `CODE_APP_BUILDER_MAX_LINES`.
+4. MANUAL1.
 
-Do not start a new feature patch until the owner commands it. Prefer environment restoration and verification over new scope.
+## 3. Requires explicit owner authorisation
 
-## 3. Open decisions (summary)
-
-1. ADR-12: server unpack vs amend.  
-2. Model registry: code-defined vs persisted.  
-3. Simple → Project import: implement or defer.  
-4. GitHub write / PR creation: when and for which repos.  
-5. Provider cascade expansion: remain deferred after MANUAL1?  
-6. Formal close of security/backup gates (G0–G4).
-
-Details: `docs/12-Documentation-Migration-and-Open-Decisions.md`, `docs/13-Implementation-Roadmap.md`.
-
-## 4. Requires explicit owner authorisation
-
-Server-side code execution beyond current gates; GitHub App write; production secrets rotation; claiming MANUAL1 passed without owner evidence.
-
----
-
-*STATUS — keep this file short. History lives in local archives and in `CHANGELOG.md` / `CHANGELOG_AGENT_BEHAVIOR.md`.*
+GitHub App write; executing generated code on the BiForge host; claiming MANUAL1 without evidence.
