@@ -607,13 +607,30 @@ export async function driveModelPatch(
         zip.file(bundlePath, file.content ?? '');
       }
     }
+    const hasReadme = validated.patch.files.some((f) => f.action !== 'delete' && /(?:^|\/)readme\.md$/i.test(f.path));
     zip.file('BIFORGE-README.txt', [
       'Generated source bundle from BiForge Project Mode.',
       `Project: ${row.project_id}`, `Task: ${row.task_id}`, `Code task: ${row.id}`,
       'Review the files before running them. BiForge did not execute this generated code on its server.',
       'Static source checks were applied; runtime tests are NOT_RUN.',
       'For a standalone browser app, open index.html in a modern browser.',
+      'For a Node app: copy .env.example to .env if present, install dependencies, follow README.',
+      'BiForge does not push to GitHub or Render. You upload and deploy manually.',
     ].join('\n') + '\n');
+    zip.file('DEPLOY-MANUAL.md', [
+      '# Manual deploy (GitHub + Render / Railway)',
+      '',
+      '1. Unpack this ZIP on your computer.',
+      '2. Read README.md if present; otherwise open the main entry (index.html or package.json scripts).',
+      '3. Copy `.env.example` to `.env` when the project has server-side config. Never commit real secrets.',
+      '4. Create an empty GitHub repository and upload these files (no automatic push from BiForge).',
+      '5. On Render: New → Web Service → connect the repo → set Build/Start from README (often `npm install` / `npm start`).',
+      '6. On Railway: New Project → Deploy from GitHub → add variables from `.env.example`.',
+      '7. Open the health URL if the app exposes `/health` or `/api/health`.',
+      '',
+      hasReadme ? 'A README.md is included in this bundle.' : 'No README.md was generated; use this file and BIFORGE-README.txt.',
+      '',
+    ].join('\n'));
     const bundle = await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE', compressionOptions: { level: 6 } });
     await saveArtifact({ projectId: row.project_id, artifactId: bundleId, filename: 'generated-program.zip', mime: 'application/zip', data: new Uint8Array(bundle), createdBy: `code_task:${row.id}`, derivedFrom: [`task:${row.task_id}`, `code_task:${row.id}`] });
   } catch (e) {

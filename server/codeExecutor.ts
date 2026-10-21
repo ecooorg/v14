@@ -8,11 +8,29 @@ import { normalizeRepoPath } from './gateEngine.ts';
 // validated and applied to text. Persistence is behind `ExecutorStore`; GitHub access lives in githubIntegration.ts.
 
 // ---- limits (11.3, 11.4) ----
+/** Default for small manual / legacy model_patch tasks. */
 export const DEFAULT_MAX_FILES = 10;
 export const DEFAULT_MAX_CHANGED_LINES = 400;
-export const MAX_DIFF_BYTES = 512_000;
+/**
+ * P58 App Builder ceiling for product-facing /code/build (source ZIP scaffolds).
+ * Env override: CODE_APP_BUILDER_MAX_FILES / CODE_APP_BUILDER_MAX_LINES (clamped).
+ * Manual delivery packages may still use DEFAULT_* unless the package raises limits.
+ */
+function envInt(name: string, fallback: number, min: number, max: number): number {
+  const raw = process.env[name];
+  if (raw === undefined || raw === '') return fallback;
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(max, Math.max(min, Math.floor(n)));
+}
+export const APP_BUILDER_MAX_FILES = envInt('CODE_APP_BUILDER_MAX_FILES', 80, 10, 120);
+export const APP_BUILDER_MAX_CHANGED_LINES = envInt('CODE_APP_BUILDER_MAX_LINES', 8000, 400, 20000);
+/** Absolute schema ceiling (must be >= APP_BUILDER_*). */
+export const ABSOLUTE_MAX_FILES = 120;
+export const ABSOLUTE_MAX_CHANGED_LINES = 20000;
+export const MAX_DIFF_BYTES = 1_500_000;
 export const MAX_FILE_BYTES = 1_000_000;
-export const MAX_PACKAGE_MD_BYTES = 1_000_000;
+export const MAX_PACKAGE_MD_BYTES = 1_500_000;
 
 // ---- types ----
 export const CODE_EXECUTOR_IDS = ['manual', 'model_patch'] as const;
@@ -113,8 +131,8 @@ export const taskPackageSchema = z.object({
   acceptanceTests: z.array(fileSchema.refine((f) => f.path.startsWith('tests/acceptance/') && f.path.length > 'tests/acceptance/'.length, { message: 'acceptance tests live under tests/acceptance/' })).max(50).default([]),
   contextFiles: z.array(fileSchema).max(50).default([]),
   limits: z.object({
-    maxFiles: z.number().int().min(1).max(DEFAULT_MAX_FILES).default(DEFAULT_MAX_FILES),
-    maxChangedLines: z.number().int().min(1).max(DEFAULT_MAX_CHANGED_LINES).default(DEFAULT_MAX_CHANGED_LINES),
+    maxFiles: z.number().int().min(1).max(ABSOLUTE_MAX_FILES).default(DEFAULT_MAX_FILES),
+    maxChangedLines: z.number().int().min(1).max(ABSOLUTE_MAX_CHANGED_LINES).default(DEFAULT_MAX_CHANGED_LINES),
   }).strict().default({}),
   sensitivity: z.enum(['normal', 'high']).default('normal'),
 }).strict().superRefine((v, ctx) => {
@@ -295,8 +313,9 @@ export function parseUnifiedDiff(text: string): ParsedDiff {
 export interface ChangeFile { path: string; action: string; added: number; removed: number }
 /** Validation by deterministic code (11.4 items 1 to 4). Returns every violation; an empty list means the change set may be applied. */
 export function validateChangeSet(files: ChangeFile[], o: { allowedPaths: string[]; limits?: { maxFiles?: number; maxChangedLines?: number } }): Violation[] {
-  const maxFiles = Math.min(o.limits?.maxFiles ?? DEFAULT_MAX_FILES, DEFAULT_MAX_FILES);
-  const maxLines = Math.min(o.limits?.maxChangedLines ?? DEFAULT_MAX_CHANGED_LINES, DEFAULT_MAX_CHANGED_LINES);
+  // Package may request up to APP_BUILDER / absolute ceiling; do not clamp back to DEFAULT_*.
+  const maxFiles = Math.min(o.limits?.maxFiles ?? DEFAULT_MAX_FILES, ABSOLUTE_MAX_FILES);
+  const maxLines = Math.min(o.limits?.maxChangedLines ?? DEFAULT_MAX_CHANGED_LINES, ABSOLUTE_MAX_CHANGED_LINES);
   const out: Violation[] = [];
   const push = (v: Violation) => { if (out.length < 100) out.push(v); };
   if (files.length === 0) push({ code: 'empty_diff' });
@@ -394,7 +413,7 @@ export const modelPatchFileSchema = z.object({
   }
 });
 export const modelPatchSchema = z.object({
-  files: z.array(modelPatchFileSchema).min(1).max(DEFAULT_MAX_FILES),
+  files: z.array(modelPatchFileSchema).min(1).max(ABSOLUTE_MAX_FILES),
   notes: z.string().max(10_000).optional(),
 }).strict();
 export type ModelPatch = z.infer<typeof modelPatchSchema>;
@@ -450,7 +469,9 @@ export function validateGeneratedSource(patch: ModelPatch, goal: string): Violat
   const browserIntent = /\btetris\b|\bbrowser\b|\bweb app\b|\bwebsite\b|\bhtml\b|\bgame\b|тетрис|игр[а-я]*/i.test(goal);
   const liveFiles = patch.files.filter((f) => f.action !== 'delete' && f.content !== undefined);
   const html = liveFiles.find((f) => /(?:^|\/)index\.html$/i.test(f.path));
-  if (browserIntent && !html) violations.push({ code: 'browser_entrypoint_missing' });
+  const pkgJson = liveFiles.find((f) => /(?:^|\/)package\.json$/i.test(f.path));
+  // Browser-style goals need a local entrypoint (static index.html or a package.json-based app).
+  if (browserIntent && !html && !pkgJson) violations.push({ code: 'browser_entrypoint_missing' });
   if (html) {
     if (!/<html\b/i.test(html.content ?? '') || !/<body\b/i.test(html.content ?? '')) violations.push({ code: 'html_shell_invalid', path: html.path });
     if (/<script\b[^>]*\bsrc\s*=\s*["']https?:\/\//i.test(html.content ?? '')) violations.push({ code: 'remote_script_disallowed', path: html.path });
