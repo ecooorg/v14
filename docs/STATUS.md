@@ -8,18 +8,15 @@
 | Workstream | Status |
 | --- | --- |
 | **Version** | **56** (`APP_VERSION`, `package.json`) |
-| **Simple / Expert** | **Unchanged** (no conversation/prompt edits in this release) |
+| **Simple / Expert** | **Unchanged** by Project App Builder work |
 | **Project UX (P58)** | Two paths: Simple words + Professional; deploy instructions in UI |
-| **Project generation (P58 server)** | `/code/build` uses App Builder limits (default 80 files / 8000 lines, env-overridable); richer code_author prompt; ZIP always includes `DEPLOY-MANUAL.md` |
-| **GitHub / Render** | Still **manual only** — no auto push or auto deploy |
-| **Open** | Full baked-in stack template packs; MANUAL1 acceptance |
+| **Project generation** | `/code/build` App Builder limits; ZIP includes `DEPLOY-MANUAL.md` |
+| **GitHub / Render** | Manual only — no auto push or auto deploy |
 
-## 2. Next (owner-driven)
+## 2. CI notes
 
-1. Apply patch; set `CODE_EXECUTOR=model_patch` where generation is wanted.
-2. Smoke Simple/Expert + both Project paths + one `/code/build`.
-3. Optional: tune `CODE_APP_BUILDER_MAX_FILES` / `CODE_APP_BUILDER_MAX_LINES`.
-4. MANUAL1.
+- Paths referenced in this file use backticks so `scripts/check-docs.mjs` can verify them.
+- Generated program archives may contain `DEPLOY-MANUAL.md` and `BIFORGE-README.txt`.
 
 ## 3. Requires explicit owner authorisation
 
