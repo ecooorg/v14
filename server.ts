@@ -42,6 +42,7 @@ import { approveCodePackage, cancelCodeTask, commitApprovedPackage, decideCodeTa
 import { buildTaskPackageFromBrief } from './server/briefWriter.ts';
 import { routeCall, newRouterState } from './server/router.ts';
 import { startKeepAlive } from './server/keepAlive.ts';
+import { readLatencyPolicy, shouldSkipQualityRetry, trimOlderAssistantMessages, createPhaseTimer } from './server/latencyPolicy.ts';
 
 dotenv.config();
 
@@ -1579,14 +1580,17 @@ import { retryDriftedToOpening } from './server/turnFocus.ts';
 // used for rendering/export; only the model input is compacted.
 const CONVERSATION_CONTEXT_MESSAGES = 8;
 const CONVERSATION_MESSAGE_MAX_CHARS = 6000;
+// P57: latency policy (quality retry guard, verifier wait, older assistant messages). Defaults keep answers unchanged.
+const LATENCY = readLatencyPolicy();
 
 function compactConversationHistory(history: any[]): any[] {
   const normalized = history.map((m: any) => ({
     role: m?.role === 'user' ? 'user' : 'assistant',
     content: String(m?.content || '').slice(0, CONVERSATION_MESSAGE_MAX_CHARS),
   }));
-  if (normalized.length <= CONVERSATION_CONTEXT_MESSAGES) return normalized;
-  return normalized.slice(-CONVERSATION_CONTEXT_MESSAGES);
+  const recent = normalized.length <= CONVERSATION_CONTEXT_MESSAGES ? normalized : normalized.slice(-CONVERSATION_CONTEXT_MESSAGES);
+  // P57: only OLDER assistant replies are shortened in the model input; user messages and the latest exchange stay complete.
+  return trimOlderAssistantMessages(recent, LATENCY.recentMessagesKept, LATENCY.olderAssistantMaxChars);
 }
 
 // P50: one web lookup for the person's last message.
@@ -1677,6 +1681,10 @@ function buildConversationPrompt(input: string, attachmentsBlock = '', modeBlock
 
 
 app.post('/api/conversation', async (req, res) => {
+  const phase = createPhaseTimer();   // P57: per-phase timing, logged as conversation_timing
+  const requestStartedAt = Date.now();
+  let retryRan = false;
+  let retrySkippedForLatency = false;
   try {
     const requestByokKey = byokFromRequest(req);
     const requestPreferredModel = preferredModelFromRequest(req);
@@ -1765,9 +1773,11 @@ app.post('/api/conversation', async (req, res) => {
         promptAttachmentsBlock = attachmentsBlock;
       }
     }
+    phase.mark('prepare_search');
     const prompt = buildConversationPrompt(input, promptAttachmentsBlock, modeBlock, new Date().toISOString().slice(0, 10), conversationMode, productMode);
     const callBudget = { used: 0 };   // S-4: the quality retry shares the request's model-call budget
     let { data, meta } = await generate(prompt, input, 'strong', 'conversation', 0, requestByokKey, requestPreferredModel, callBudget, genOpts);
+    phase.mark('main_call');
     let out = data as any;
 
     const normSufficiency = (o: any): string => {
@@ -1797,7 +1807,13 @@ app.post('/api/conversation', async (req, res) => {
       }
       if (!audit.passed) needRetry = true;
     }
-    if (needRetry && STRONG_MODELS.length > 1) {
+    // P57: a second full model call is not worth the wait once the turn has already been slow; the person keeps the first draft.
+    retrySkippedForLatency = needRetry && shouldSkipQualityRetry(Date.now() - requestStartedAt, LATENCY.retryMaxElapsedMs);
+    if (retrySkippedForLatency) {
+      console.info(JSON.stringify({ type: 'conversation_retry_skipped', reason: 'latency', elapsed_ms: Date.now() - requestStartedAt, user_turns: userTurns }));
+    }
+    if (needRetry && !retrySkippedForLatency && STRONG_MODELS.length > 1) {
+      retryRan = true;
       let retryPrompt: string;
       if (infoRetry) {
         // MP3: information-mode soft retry — keep the same information prompt, add a short repair hint.
@@ -1859,6 +1875,7 @@ The person demanded a direct answer and forbade methodology or lecturing. Open w
       }
     }
 
+    phase.mark('retry_call');
     if (!out?.reply || typeof out.reply !== 'string') return fail(res, 500, 'Conversation response was empty', 'SCHEMA');
     // A document handed over by the model: cleaned like every other reply text, never during a crisis turn.
     const cleanDoc = (t: string) => stripMarkdown(scrubInternalLabels(t));
@@ -1908,11 +1925,13 @@ The person demanded a direct answer and forbade methodology or lecturing. Open w
           userText: lastUserText,
           replyText: visibleReply,
           requestId: `epistemic-${Date.now()}`,
+          timeoutMs: LATENCY.verifierTimeoutMs,   // P57: a slow optional verifier is dropped sooner; the reply never depends on it
         });
       }
     } catch {
       epistemic = skippedEpistemic('error');
     }
+    phase.mark('verifier');
     // PI-02: search_expected in meta/logs when the user asked for a web search (no search tool yet).
     const responseMeta = {
       ...(meta as object),
@@ -1922,6 +1941,11 @@ The person demanded a direct answer and forbade methodology or lecturing. Open w
       ...(webSearch.status !== 'skipped' ? { web_search: webSearch.status } : {}),
       epistemic_verifier: epistemic.verifier,
     };
+    console.info(JSON.stringify({
+      type: 'conversation_timing', mode: conversationMode, product_mode: productMode,
+      calls: (meta as any).calls, retried: retryRan, retry_skipped: retrySkippedForLatency,
+      web_search: webSearch.status, verifier: epistemic.verifier, ...phase.summary(),
+    }));
     ok(res, {
       reply: visibleReply + (webSearch.status === 'used' ? formatSourcesFooter(webSearch.sources, lastUserText) : ''),
       question: cleanQuestion,

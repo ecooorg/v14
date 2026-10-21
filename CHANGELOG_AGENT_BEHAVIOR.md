@@ -1,5 +1,6 @@
 ## v55
 
+- P57 (no version change): conversation latency policy. Quality retry skipped after a slow turn (`QUALITY_RETRY_MAX_ELAPSED_MS`), shorter wait for the optional verifier (`EPISTEMIC_TIMEOUT_MS`), older assistant messages cut in the model input (`OLDER_ASSISTANT_MAX_CHARS`); prompts, model list and state are not changed. One `conversation_timing` log line per turn.
 - Product version bump to **55** (UX friendliness: unified top menu, privacy sticky confirm, Decision brief gate, full-screen User guide, start-mode copy).
 
 ## v47

@@ -1,3 +1,11 @@
+## P57 — Conversation latency, no product version change (2026-10-20)
+
+- `conversation_timing` log line per turn: time spent before the model, in the main call, in the quality retry and in the verifier.
+- The quality retry is skipped when the turn has already taken longer than `QUALITY_RETRY_MAX_ELAPSED_MS` (default 12000 ms); the first draft is returned. `0` restores the earlier behaviour.
+- The optional Groq verifier waits `EPISTEMIC_TIMEOUT_MS` (default 5000 ms, was 12000 ms); the reply never depends on it.
+- Assistant messages older than the last two messages are cut to `OLDER_ASSISTANT_MAX_CHARS` (default 2500) in the model input; user messages, the latest exchange and the durable state are unchanged. `0` restores the earlier behaviour.
+- New `server/latencyPolicy.ts`; tests in `tests/conversation-turn.test.mjs`.
+
 ## P56 — Regression guard and test hygiene (2026-10-18)
 
 - No product change. All test files now run in CI; a guard test fails when a route, module, control or check disappears.

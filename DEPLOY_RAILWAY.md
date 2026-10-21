@@ -30,6 +30,7 @@ If `APP_PASSWORD` is empty in production the site is open to everyone; the serve
 - `LOGIN_MAX_FAILS` (default 10) and `LOGIN_WINDOW_MIN` (default 15) — failed sign-ins allowed per address per window.
 - `MAX_UPLOAD_BYTES` (default 10485760) — largest file the person can attach. `MAX_ATTACH_TEXT_CHARS` (default 30000) — how much text of one file is passed to the model.
 - `LLM_CALL_TIMEOUT_MS` (default 25000), `LLM_TOTAL_DEADLINE_MS` (default 70000), `LLM_ROUND_PAUSE_MS`, `MAX_BODY_BYTES`, `GEMINI_BASE_URL`.
+- Latency policy (P57): `QUALITY_RETRY_MAX_ELAPSED_MS` (default 12000; `0` = always allow the quality retry), `EPISTEMIC_TIMEOUT_MS` (default 5000), `OLDER_ASSISTANT_MAX_CHARS` (default 2500; `0` = never cut). Each conversation turn logs one `conversation_timing` line with the time spent per phase.
 
 ## Recommended production values (12 October 2026)
 
