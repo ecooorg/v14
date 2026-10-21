@@ -152,16 +152,17 @@ function guideHtmlForPrint(): string {
 <tr><td>Learn</td><td>Lessons / next cycle</td><td>Supports reflection</td></tr>
 </tbody></table>
 <h2>5. Project mode</h2>
-<p>Separate workspace. Scope: analysis, plan, program ZIP, hand-off tasks. GitHub is read-only; BiForge never merges.</p>
+<p>Separate from Simple/Expert. Two paths: <strong>Simple words</strong> (idea → questions → ZIP + manual deploy steps) or <strong>Professional</strong> (analysis, plan, delivery). GitHub is read-only; BiForge never merges or deploys for you.</p>
 <ol>
-<li>Sign in if required; check <em>What is available here</em>.</li>
-<li>Create a project; confirm the <strong>project description</strong>.</li>
+<li>Sign in if required; choose a path; check <em>What is available here</em>.</li>
+<li>Simple words: describe the idea, answer button questions, confirm once, download ZIP.</li>
+<li>Professional: create a project; confirm the <strong>project description</strong>.</li>
 <li>Run analysis; on Results, <strong>Confirm</strong> or <strong>Reject</strong> each item (nothing is accepted automatically).</li>
 <li>Add human decisions; create a plan; approve budgets/gates; start tasks.</li>
-<li>Delivery: PACKAGE.md → work outside → refresh GitHub (read-only) → you accept or reject.</li>
+<li>Download source ZIP and follow on-screen manual deploy steps (GitHub + host by hand).</li>
 <li>Files / optional developer JSON.</li>
 </ol>
-<p>Path: Description → Analysis → Confirm items → Plan → Delivery.</p>
+<p>Paths: Simple words → ZIP · or Description → Analysis → Confirm → Plan → ZIP / Delivery.</p>
 <h2>6. Google Drive</h2>
 <p>Mirroring works only while the tab is open. Optional.</p>
 <h2>7. Export</h2>
@@ -321,12 +322,21 @@ function GuideBody() {
 
       <h2 style={h2}>5. Project mode</h2>
       <p>
-        Separate workspace. Scope: analysis, plan, small programs as ZIP, hand-off of code tasks. <strong>GitHub is read-only</strong>;
-        BiForge never merges.
+        Separate workspace (does not change Simple or Expert). Two paths on the start screen:
       </p>
-      <h3 style={h3}>Suggested path</h3>
+      <ul>
+        <li>
+          <strong>Simple words</strong> — describe the idea in ordinary language, answer a few button questions, confirm once.
+          When program ZIP is enabled on the server, you get a source archive plus manual deploy steps (GitHub + host by hand).
+        </li>
+        <li>
+          <strong>Professional</strong> — more control: project description, analysis, plans, tasks, delivery tools. Same final
+          idea: a ZIP you publish yourself. <strong>GitHub is read-only</strong>; BiForge never merges or deploys for you.
+        </li>
+      </ul>
+      <h3 style={h3}>Suggested path (Professional)</h3>
       <ol>
-        <li>Sign in if required; open <em>What is available here</em>.</li>
+        <li>Sign in if required; open <em>What is available here</em>; choose Professional if you want full tools.</li>
         <li>
           Create a project; confirm the <strong>project description</strong> to unlock analysis.
         </li>
@@ -339,8 +349,8 @@ function GuideBody() {
           Create a <strong>plan</strong>, approve budgets and gates, start tasks.
         </li>
         <li>
-          <strong>Delivery</strong>: hand-off task → download PACKAGE.md → work outside → refresh GitHub checks (read-only) →
-          accept, repair, or reject. You merge in GitHub yourself.
+          <strong>Delivery</strong> or <strong>Create program</strong>: download the source ZIP, follow the on-screen manual
+          deploy steps, work outside BiForge. You upload to GitHub and connect Render/Railway yourself.
         </li>
         <li>Files: artifacts, Drive save, model request history. Developer JSON is optional and hidden until you enable it.</li>
       </ol>

@@ -7,6 +7,9 @@ import { DRIVE_STATUS_EVENT, connectDriveFiles, isMirrorConnected, mirrorBlobDet
 import { isDriveConfigured } from './driveClient.ts';
 import { ModeMenu } from './ModeMenu.tsx';
 import { UserGuideModal } from './UserGuide.tsx';
+import { ProjectPathChooser } from './ProjectPathChooser.tsx';
+import { ProjectNoviceWizard } from './ProjectNoviceWizard.tsx';
+import { manualDeployInstructions, type BuilderPath } from './projectAppBuilder.ts';
 
 type Project = { id: string; name: string; status: string; state: Record<string, unknown>; state_version: number; updated_at?: string };
 type Passport = { status: 'proposed' | 'confirmed'; projectType: string; goal: string; users: string; inputsOutputs: string; constraints: string; securityData: string; successCriteria: string; budget: { calls: number; tokens: number; executorRuns: number }; executor: 'manual' | 'model_patch'; humanLevel: 'supervised' | 'manual' };
@@ -56,6 +59,8 @@ export default function ProjectMode() {
   const [codeTaskIds, setCodeTaskIds] = useState<string[]>([]);
   const [focusTaskId, setFocusTaskId] = useState<string | null>(null);
   const [workspaceAttachments, setWorkspaceAttachments] = useState<{ name: string; kind: string; text: string }[]>([]);
+  /** P58: null = show path chooser; novice = wizard; professional = existing workspace tools. */
+  const [builderPath, setBuilderPath] = useState<BuilderPath | null>(null);
 
   const loadProjects = useCallback(async (selectProjectId?: string) => {
     const list = await api<Project[]>('/api/projects');
@@ -357,13 +362,62 @@ export default function ProjectMode() {
       <div style={{ marginBottom: 8 }}>
         <div style={{ fontSize: 12, letterSpacing: 1.5, textTransform: 'uppercase', color: '#8fa6c2' }}>BiForge</div>
         <h1 style={{ margin: '6px 0' }}>Project workspace</h1>
-        <p style={{ marginTop: 0, color: '#8fa6c2' }}>Separate from Simple/Expert chat: create projects, run analysis, and review results here.</p>
+        <p style={{ marginTop: 0, color: '#8fa6c2' }}>
+          Separate from Simple/Expert chat. Choose a path below: simple words for a guided ZIP, or professional tools for more control.
+          Final delivery is always a source archive you publish yourself — no automatic GitHub or Render integration.
+        </p>
         <p style={{ marginTop: 8, fontSize: 13, color: '#9fd8ff' }}>{PROJECT_SCOPE_TEXT}</p>
         <details data-testid="project-capabilities" style={{ marginTop: 6, fontSize: 13, color: '#8fa6c2' }}>
           <summary style={{ cursor: 'pointer' }}>What is available here</summary>
           <ul style={{ margin: '6px 0 0', paddingLeft: 18 }}>{describeCapabilities(capabilities).map(r => <li key={r.label}><strong>{r.label}: {r.on ? 'on' : 'off'}</strong> — {r.note}</li>)}</ul>
         </details>
       </div>
+    {authenticated && enabled && builderPath === null && !selected && (
+      <ProjectPathChooser disabled={busy} onChoose={(p) => setBuilderPath(p)} />
+    )}
+    {authenticated && enabled && builderPath === 'novice' && (
+      <ProjectNoviceWizard
+        busy={busy}
+        programZipAvailable={Boolean(capabilities?.programZip)}
+        onBack={() => setBuilderPath(null)}
+        onFinished={(id) => { void loadProjects(id); }}
+        createProject={async (n, g) => {
+          setBusy(true); setError(''); setNotice('');
+          try {
+            const project = await api<Project>('/api/projects', { method: 'POST', body: JSON.stringify({ name: n.trim(), goal: g.trim() }) });
+            return project;
+          } finally { setBusy(false); }
+        }}
+        confirmPassport={async (projectId, expectedVersion, passport, stateBase) => {
+          setBusy(true);
+          try {
+            await api(`/api/projects/${encodeURIComponent(projectId)}/state`, {
+              method: 'PUT',
+              body: JSON.stringify({ expected_version: expectedVersion, state: { ...stateBase, passport } }),
+            });
+            const fresh = await api<Project>(`/api/projects/${encodeURIComponent(projectId)}`);
+            return { state_version: fresh.state_version };
+          } finally { setBusy(false); }
+        }}
+        requestBuild={async (projectId, buildGoal) => {
+          setBusy(true);
+          try {
+            const r = await api<{ taskId: string; codeTask: { status?: string; statusReason?: string }; downloadUrl?: string; note?: string }>(
+              `/api/projects/${encodeURIComponent(projectId)}/code/build`,
+              { method: 'POST', body: JSON.stringify({ goal: buildGoal }) },
+            );
+            setProgramResult(r);
+            return { downloadUrl: r.downloadUrl, note: r.note || r.codeTask?.statusReason, status: r.codeTask?.status };
+          } finally { setBusy(false); }
+        }}
+      />
+    )}
+    {authenticated && enabled && builderPath === 'professional' && !selected && (
+      <p style={{ fontSize: 13, color: '#8fa6c2', margin: '8px 0' }}>
+        Professional path: create a project below, confirm the description, then use analysis, plan, and delivery.
+        <button type="button" style={{ ...styles.button, marginLeft: 8, minHeight: 32, padding: '4px 10px' }} onClick={() => setBuilderPath(null)}>Change path</button>
+      </p>
+    )}
     {authenticated && enabled && <section style={{ margin: '16px 0', padding: 12, border: '1px solid #1f4f86', borderRadius: 8 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
         <h2 style={{ marginTop: 0, fontSize: 16 }}>Workspace files</h2>
@@ -378,7 +432,9 @@ export default function ProjectMode() {
         <button type="button" aria-label="Close message" onClick={() => { setError(''); setNotice(''); }} style={{ background: 'none', border: 0, color: 'inherit', fontSize: 20, cursor: 'pointer', lineHeight: 1 }}>×</button>
       </div></div>}
     {enabled === null || authenticated === null ? <p>Checking session…</p> : !enabled ? <p role="status">Project Mode is disabled in the server configuration. <a href="/" style={styles.link}>Back to Simple Mode</a>.</p> : !authenticated ? <form onSubmit={login} style={{ maxWidth: 420, display: 'grid', gap: 12 }}><h2>Sign in</h2><label htmlFor="project-password">App password</label><input id="project-password" style={styles.input} type="password" autoComplete="current-password" value={password} onChange={e => setPassword(e.target.value)} required /><button style={styles.button} disabled={busy}>Sign in</button></form> : <>
-      <form onSubmit={create} style={{ display: 'flex', flexWrap: 'wrap', gap: 8, margin: '12px 0 24px' }}><input aria-label="Project name" style={{ ...styles.input, flex: '1 1 240px' }} value={name} onChange={e => setName(e.target.value)} placeholder="New project name" required maxLength={200} /><input aria-label="Project goal" style={{ ...styles.input, flex: '1 1 240px' }} value={goal} onChange={e => setGoal(e.target.value)} placeholder="Goal (optional)" maxLength={2000} /><button style={styles.button} disabled={busy || !name.trim()}>Create project</button></form>
+      {(builderPath === 'professional' || selected || builderPath === null) && builderPath !== 'novice' && (
+      <form onSubmit={(e) => { if (builderPath === null) setBuilderPath('professional'); return create(e); }} style={{ display: 'flex', flexWrap: 'wrap', gap: 8, margin: '12px 0 24px' }}><input aria-label="Project name" style={{ ...styles.input, flex: '1 1 240px' }} value={name} onChange={e => setName(e.target.value)} placeholder="New project name" required maxLength={200} /><input aria-label="Project goal" style={{ ...styles.input, flex: '1 1 240px' }} value={goal} onChange={e => setGoal(e.target.value)} placeholder="Goal (optional)" maxLength={2000} /><button style={styles.button} disabled={busy || !name.trim()}>Create project</button></form>
+      )}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 260px), 1fr))', gap: 24 }}>
         <section><h2>Projects</h2>{projects.length === 0 ? <div style={{ padding: 16, border: '1px dashed #25405e', borderRadius: 8 }}><strong>Create your first project</strong><p style={{ color: '#8fa6c2', fontSize: 13 }}>Describe it, run an analysis, then review the results.</p></div> : <ul style={{ paddingLeft: 20 }}>{projects.map(p => <li key={p.id} style={{ margin: '12px 0', display: 'flex', gap: 8 }}><button style={{ ...styles.button, flex: 1, textAlign: 'left', borderColor: selected?.id === p.id ? '#78baff' : '#3d7fc4' }} onClick={async () => { try { const full = await api<Project>(`/api/projects/${encodeURIComponent(p.id)}`); setSelected(full); setStateText(JSON.stringify(full.state ?? {}, null, 2)); setError(''); } catch (e) { setError(String((e as Error).message || e)); } }}><strong>{p.name}</strong><br /><small>{p.status} · version {p.state_version}</small></button><details style={{ position: 'relative' }}><summary aria-label={`More actions for ${p.name}`} title="More actions" style={{ ...styles.button, padding: '10px 12px', listStyle: 'none' }}>⋯</summary><div style={{ position: 'absolute', right: 0, top: 46, zIndex: 5, background: '#10243a', border: '1px solid #3d7fc4', padding: 6, borderRadius: 8 }}><button type="button" style={{ ...styles.button, borderColor: '#a33', color: '#ffb4b4' }} disabled={busy} onClick={() => void removeProject(p)}>Delete project</button></div></details></li>)}</ul>}</section>
         <section><h2>Project workspace</h2>{selected ? <><p><strong>{selected.name}</strong><br /><small>Save {selected.state_version}</small></p>{driveBar}{passport && <section style={{ margin: '0 0 16px', padding: 12, border: '1px solid #1f4f86', borderRadius: 8 }}><h3 style={{ marginTop: 0 }}>Project description <small style={{ color: passport.status === 'confirmed' ? '#7fe0a8' : '#e6c07a' }}>({passport.status})</small></h3><div style={{ display: 'grid', gap: 8 }}>
@@ -403,7 +459,7 @@ export default function ProjectMode() {
               {capabilities && !capabilities.programZip && <p style={{ fontSize: 12, color: '#e6c07a' }}>{ZIP_OFF_HINT}</p>}
               {(!capabilities || capabilities.programZip) && passport.executor !== 'model_patch' && <p style={{ fontSize: 12, color: '#e6c07a' }}>Automatic coding is off for this project. Turn it on in project settings (How code is written → Automatic).</p>}
               {passport.executor === 'model_patch' && (!capabilities || capabilities.programZip) && <p style={{ fontSize: 12, color: '#8fa6c2' }}>Generated source is checked for safety but is never run on BiForge servers — download and review it yourself.</p>}
-              {programResult && <div style={{ marginTop: 12, borderTop: '1px solid #1f4f86', paddingTop: 10 }}><strong>Latest code task: {programResult.codeTask.statusReason === 'source_bundle_ready_github_delivery_not_requested' ? 'SOURCE READY' : programResult.codeTask.status}</strong><br /><small>Task {programResult.taskId} · Code task {programResult.codeTask.id}</small>{programResult.codeTask.statusReason && <p style={{ fontSize: 13 }}>{programResult.codeTask.statusReason}</p>}{programResult.codeTask.prUrl && <p><a href={programResult.codeTask.prUrl} target="_blank" rel="noreferrer" style={{ color: '#9ac7ff' }}>Open generated-code Pull Request</a></p>}{programResult.downloadUrl && <p><a href={programResult.downloadUrl} style={{ color: '#9ac7ff' }}>Download generated program (.zip)</a>{isDriveConfigured() && <> <button type="button" style={{ ...styles.button, minHeight: 32 }} disabled={driveBusy} onClick={() => void saveProgramToDrive()}>Save ZIP to Google Drive</button></>}</p>}{programResult.note && <p style={{ fontSize: 13 }}>{programResult.note}</p>}</div>}
+              {programResult && <div style={{ marginTop: 12, borderTop: '1px solid #1f4f86', paddingTop: 10 }}><strong>Latest code task: {programResult.codeTask.statusReason === 'source_bundle_ready_github_delivery_not_requested' ? 'SOURCE READY' : programResult.codeTask.status}</strong><br /><small>Task {programResult.taskId} · Code task {programResult.codeTask.id}</small>{programResult.codeTask.statusReason && <p style={{ fontSize: 13 }}>{programResult.codeTask.statusReason}</p>}{programResult.codeTask.prUrl && <p><a href={programResult.codeTask.prUrl} target="_blank" rel="noreferrer" style={{ color: '#9ac7ff' }}>Open generated-code Pull Request</a></p>}{programResult.downloadUrl && <p><a href={programResult.downloadUrl} style={{ color: '#9ac7ff' }}>Download generated program (.zip)</a>{isDriveConfigured() && <> <button type="button" style={{ ...styles.button, minHeight: 32 }} disabled={driveBusy} onClick={() => void saveProgramToDrive()}>Save ZIP to Google Drive</button></>}</p>}{programResult.downloadUrl && <pre style={{ whiteSpace: 'pre-wrap', fontSize: 12, color: '#8fa6c2', marginTop: 8 }}>{manualDeployInstructions(selected?.name || 'project')}</pre>}{programResult.note && <p style={{ fontSize: 13 }}>{programResult.note}</p>}</div>}
             </section>
             <nav aria-label="Project sections" style={{ display: 'flex', flexWrap: 'wrap', gap: 6, borderBottom: '1px solid #25405e', margin: '18px 0 12px' }}>{([
               ['results', 'Results'],
