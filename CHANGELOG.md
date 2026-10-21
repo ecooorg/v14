@@ -1,3 +1,8 @@
+## Docs hygiene
+
+- Retired duplicate `CHANGELOG_AGENT_BEHAVIOR.md`. Agent and product history: **only** this file (`CHANGELOG.md`).
+- Operator deploy: `docs/DEPLOY.md` only (no root `DEPLOY_RAILWAY.md`).
+
 ## P57 — Conversation latency, no product version change (2026-10-20)
 
 - `conversation_timing` log line per turn: time spent before the model, in the main call, in the quality retry and in the verifier.

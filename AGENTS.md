@@ -71,7 +71,7 @@ These instructions define the default working rules for coding agents. If an ins
 - The model may have no GitHub access. The owner uploads archives and applies patches by hand when required.
 - **Required deliverable for every patch:** a downloadable archive containing only the **changed and new files** (not a full tree dump). A `.patch`/`.diff` alone does not replace the archive.
 - After code changes: run the narrowest relevant tests, then `npm run check` when the environment allows.
-- Update `docs/STATUS.md` and `CHANGELOG.md` / `CHANGELOG_AGENT_BEHAVIOR.md` when the product version or behaviour changes.
+- Update `docs/STATUS.md` and `CHANGELOG.md` when the product version or behaviour changes. Do **not** create or revive `CHANGELOG.md` (retired; history lives only in `CHANGELOG.md`).
 - **Product version.** Single source of truth: `APP_VERSION` in `src/config.ts`, kept equal to `package.json` `"version"`. Enforced by `scripts/check-version.mjs`. Do not require version stamps in README or deploy markdown. Operator deploy: `docs/DEPLOY.md`.
 
 ## 6. Safety and honesty
