@@ -1,5 +1,5 @@
 {
-  "_about": "Public surface that existing features rely on. tests/p56-feature-guard.test.mjs fails when anything listed here disappears. If a removal is intentional, edit this file in the same patch and say why in docs/PATCH_JOURNAL.md. Additions need no edit.",
+  "_about": "Public surface that existing features rely on. tests/p56-feature-guard.test.mjs fails when anything listed here disappears. If a removal is intentional, edit this file in the same patch and say why in CHANGELOG.md. Additions need no edit.",
   "routes": [
     "DELETE /api/projects/:projectId",
     "GET *",

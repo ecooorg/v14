@@ -8,7 +8,7 @@
  * P56: regression guard for the whole product (owner rule: later patches only improve and fix, they never silently remove a function).
  *  1. Every test file is wired into an npm script, and every test:* script is part of `npm run check` (or is one of the separate CI steps).
  *  2. The public surface listed in tests/feature-manifest.json (API routes, modules, key screens and controls, check chain) is still there.
- * Removing something on purpose: edit tests/feature-manifest.json in the same patch and explain it in docs/PATCH_JOURNAL.md.
+ * Removing something on purpose: edit tests/feature-manifest.json in the same patch and explain it in CHANGELOG.md.
  */
 const test = (await import("node:test")).default;
 const assert = (await import("node:assert/strict")).default;
@@ -20,7 +20,7 @@ const read = (p) => fs.readFileSync(path.join(root, p), 'utf8');
 const exists = (p) => fs.existsSync(path.join(root, p));
 const pkg = JSON.parse(read('package.json')).scripts;
 const manifest = JSON.parse(read('tests/feature-manifest.json'));
-const hint = 'If this removal is intentional, update tests/feature-manifest.json in the same patch and explain it in docs/PATCH_JOURNAL.md.';
+const hint = 'If this removal is intentional, update tests/feature-manifest.json in the same patch and explain it in CHANGELOG.md.';
 
 // Test scripts that run as their own CI step (they need PostgreSQL, a browser or network), not inside `npm run check`.
 const SEPARATE_CI_STEPS = new Set(['lint', 'test', 'test:live', 'test:ui', 'verify:connections', 'test:database:live', 'test:bx06:api']);
