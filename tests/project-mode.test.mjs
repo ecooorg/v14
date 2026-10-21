@@ -346,8 +346,11 @@ const diffOf = (path, oldL, newL) => `diff --git a/${path} b/${path}\n--- a/${pa
 test('package: schema, limits cap, hash is stable, secrets are refused without echoing them', () => {
   const p = pkg();
   assert.equal(p.limits.maxFiles, 10); assert.equal(p.limits.maxChangedLines, 400);
-  assert.throws(() => ce.taskPackageSchema.parse({ ...p, limits: { maxFiles: 11 } }));
-  assert.throws(() => ce.taskPackageSchema.parse({ ...p, limits: { maxChangedLines: 401 } }));
+  // Cap is ABSOLUTE_* (app-builder ceiling), not the legacy DEFAULT 10/400.
+  const absFiles = ce.ABSOLUTE_MAX_FILES ?? ce.APP_BUILDER_MAX_FILES ?? 120;
+  const absLines = ce.ABSOLUTE_MAX_CHANGED_LINES ?? ce.APP_BUILDER_MAX_CHANGED_LINES ?? 20000;
+  assert.throws(() => ce.taskPackageSchema.parse({ ...p, limits: { maxFiles: absFiles + 1 } }));
+  assert.throws(() => ce.taskPackageSchema.parse({ ...p, limits: { maxChangedLines: absLines + 1 } }));
   assert.throws(() => ce.taskPackageSchema.parse({ ...p, allowedPaths: ['**'] }), 'bare wildcard is too broad');
   assert.throws(() => ce.taskPackageSchema.parse({ ...p, allowedPaths: ['../x'] }));
   assert.throws(() => ce.taskPackageSchema.parse({ ...p, acceptanceTests: [{ path: 'src/x.test.mjs', content: '' }] }));
