@@ -28,9 +28,9 @@ export const APP_BUILDER_MAX_CHANGED_LINES = envInt('CODE_APP_BUILDER_MAX_LINES'
 /** Absolute schema ceiling (must be >= APP_BUILDER_*). */
 export const ABSOLUTE_MAX_FILES = 120;
 export const ABSOLUTE_MAX_CHANGED_LINES = 20000;
-export const MAX_DIFF_BYTES = 1_500_000;
+export const MAX_DIFF_BYTES = 512_000;
 export const MAX_FILE_BYTES = 1_000_000;
-export const MAX_PACKAGE_MD_BYTES = 1_500_000;
+export const MAX_PACKAGE_MD_BYTES = 1_000_000;
 
 // ---- types ----
 export const CODE_EXECUTOR_IDS = ['manual', 'model_patch'] as const;
