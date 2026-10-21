@@ -78,8 +78,8 @@ export function emptyNoviceAnswers(): NoviceAnswers {
 }
 
 /** Map wizard answers into a Project Passport shape (existing schema). */
-export function passportFromNoviceAnswers(a: NoviceAnswers): {
-  status: 'proposed';
+/** Passport fields without status — caller sets proposed | confirmed. */
+export type NovicePassportFields = {
   projectType: string;
   goal: string;
   users: string;
@@ -90,7 +90,9 @@ export function passportFromNoviceAnswers(a: NoviceAnswers): {
   budget: { calls: number; tokens: number; executorRuns: number };
   executor: 'model_patch' | 'manual';
   humanLevel: 'supervised';
-} {
+};
+
+export function passportFromNoviceAnswers(a: NoviceAnswers): NovicePassportFields {
   const stack = STACK_TEMPLATES.find((s) => s.id === a.stack) ?? STACK_TEMPLATES[3];
   const authLine =
     a.needsAuth === 'yes' ? 'Users must sign in.' : a.needsAuth === 'no' ? 'No user accounts required.' : 'Auth: decide during design.';
@@ -100,7 +102,6 @@ export function passportFromNoviceAnswers(a: NoviceAnswers): {
     a.language === 'ru' ? 'Russian UI preferred.' : a.language === 'en' ? 'English UI.' : 'UI language as stated in the idea.';
 
   return {
-    status: 'proposed',
     projectType: `${a.kind} · stack hint: ${stack.label}`,
     goal: a.idea.trim(),
     users: a.kind === 'utility' || a.kind === 'bot' ? 'Operator / developer' : 'End users in a browser',

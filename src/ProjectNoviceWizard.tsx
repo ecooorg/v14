@@ -71,10 +71,10 @@ export function ProjectNoviceWizard({
   confirmPassport: (
     projectId: string,
     expectedVersion: number,
-    passport: ReturnType<typeof passportFromNoviceAnswers> & { status: 'confirmed' },
+    passport: ReturnType<typeof passportFromNoviceAnswers> & { status: 'proposed' | 'confirmed' },
     stateBase: Record<string, unknown>,
   ) => Promise<{ state_version: number }>;
-  requestBuild: (projectId: string, goal: string) => Promise<{ downloadUrl?: string; note?: string; status?: string }>;
+  requestBuild: (projectId: string, goal: string, answers: NoviceAnswers) => Promise<{ downloadUrl?: string; note?: string; status?: string; stack?: string }>;
   programZipAvailable: boolean;
 }) {
   const [step, setStep] = useState<Step>(0);
@@ -109,20 +109,14 @@ export function ProjectNoviceWizard({
       await confirmPassport(project.id, project.state_version, passport, nextState);
       setNotice('Project created and description confirmed.');
 
-      if (programZipAvailable) {
-        setNotice('Project created. Generating source ZIP…');
-        const built = await requestBuild(project.id, buildGoal);
-        if (built.downloadUrl) {
-          setDownloadUrl(built.downloadUrl);
-          setNotice('Source ZIP is ready. Download it and follow the steps below.');
-        } else {
-          setNotice(
-            `Project is ready. Code generation status: ${built.status || 'unknown'}. ${built.note || 'You can open the project and use Program / Delivery tabs.'}`,
-          );
-        }
+      setNotice('Project created. Building source ZIP (IR → scaffold)…');
+      const built = await requestBuild(project.id, answers.idea.trim(), answers);
+      if (built.downloadUrl) {
+        setDownloadUrl(built.downloadUrl);
+        setNotice(`Source ZIP ready${built.stack ? ` (stack: ${built.stack})` : ''}. Download and follow the steps below.`);
       } else {
         setNotice(
-          'Project is ready. Automatic program ZIP is switched off on this server — open the project and use the Professional tools or ask the administrator to enable CODE_EXECUTOR=model_patch.',
+          `Project is ready. Build status: ${built.status || 'unknown'}. ${built.note || 'Open the project for more tools.'}`,
         );
       }
       setStep(4);
@@ -296,7 +290,7 @@ export function ProjectNoviceWizard({
               Back
             </button>
             <button type="button" style={{ ...S.button, ...S.primary }} disabled={busy} onClick={() => void runCreateAndBuild()}>
-              {busy ? 'Working…' : programZipAvailable ? 'Create project & build ZIP' : 'Create project'}
+              {busy ? 'Working…' : 'Create project & build ZIP'}
             </button>
           </div>
         </div>
