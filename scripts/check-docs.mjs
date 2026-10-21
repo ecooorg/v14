@@ -3,7 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const candidates = ['README.md', 'AGENTS.md', 'DEPLOY_RAILWAY.md', 'docs'];
+const candidates = ['README.md', 'AGENTS.md', 'docs'];
 const files = [];
 
 function walk(p) {
@@ -39,7 +39,7 @@ for (const file of [...new Set(files)]) {
   }
 }
 
-const pathDocs = ['AGENTS.md', 'README.md', 'DEPLOY_RAILWAY.md', 'docs/START_HERE.md', 'docs/STATUS.md', 'docs/README.md'];
+const pathDocs = ['AGENTS.md', 'README.md', 'docs/DEPLOY.md', 'docs/START_HERE.md', 'docs/STATUS.md', 'docs/README.md'];
 const EXT = /\.(md|ts|tsx|mjs|json|toml|yaml|yml|txt|sql|sh|html|css|png|svg|example|csv)$/i;
 const GENERATED = /^(dist|dist-server|node_modules|artifacts)(\/|$)|^perf-report\.json$/;
 let pathChecks = 0;
