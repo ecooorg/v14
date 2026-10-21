@@ -1,27 +1,24 @@
-# BiForge v56
+# BiForge
 
-Product version **56**. See `docs/STATUS.md`.
+Web app for conversational assistance (Simple / Expert) and managed project work (Project).
 
-## In brief: what BiForge is
+Version: `APP_VERSION` in `src/config.ts` (same value as `package.json`).
 
-BiForge runs a project as a managed process, not as a chat transcript. A project has **Project State**: goal, facts, unknowns, hypotheses, decisions, risks, requirements. The model proposes State changes; the system validates them against schema and policy; **only a human makes decisions**.
+## Documentation
 
-Modes: **Simple**, **Expert**, and **Project**.
-
-## Documentation (canonical — English only)
-
-| Start here | Path |
+| Topic | Path |
 | --- | --- |
-| Onboarding | [`docs/START_HERE.md`](docs/START_HERE.md) |
-| Living status | [`docs/STATUS.md`](docs/STATUS.md) |
-| Full index | [`docs/README.md`](docs/README.md) |
+| Start | [`docs/START_HERE.md`](docs/START_HERE.md) |
+| Status | [`docs/STATUS.md`](docs/STATUS.md) |
+| Deploy (any host) | [`docs/DEPLOY.md`](docs/DEPLOY.md) |
+| Index | [`docs/README.md`](docs/README.md) |
 | Agent rules | [`AGENTS.md`](AGENTS.md) |
 
-The complete technical set lives under `docs/` (`01`–`15`, inventories, evidence). Historical Russian specifications and patch SPECs/REPORTs are **not** in this repository; they are retained only in the owner’s local archives.
+## Modes
 
-## Quick links
+- **Simple / Expert** — conversation-oriented.
+- **Project** — persistent state, plans, optional source ZIP for manual publish (GitHub + host by hand).
 
-- Deploy: [`DEPLOY_RAILWAY.md`](DEPLOY_RAILWAY.md)
-- Architecture: [`docs/02-Architecture-and-Components.md`](docs/02-Architecture-and-Components.md)
-- API: [`docs/03-API-and-Integration-Contracts.md`](docs/03-API-and-Integration-Contracts.md)
-- Open decisions: [`docs/12-Documentation-Migration-and-Open-Decisions.md`](docs/12-Documentation-Migration-and-Open-Decisions.md)
+## Deploy
+
+See [`docs/DEPLOY.md`](docs/DEPLOY.md).

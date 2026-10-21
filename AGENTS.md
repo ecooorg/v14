@@ -72,7 +72,7 @@ These instructions define the default working rules for coding agents. If an ins
 - **Required deliverable for every patch:** a downloadable archive containing only the **changed and new files** (not a full tree dump). A `.patch`/`.diff` alone does not replace the archive.
 - After code changes: run the narrowest relevant tests, then `npm run check` when the environment allows.
 - Update `docs/STATUS.md` and `CHANGELOG.md` / `CHANGELOG_AGENT_BEHAVIOR.md` when the product version or behaviour changes.
-- **Product version.** Single source of truth: `APP_VERSION` in `src/config.ts`. Keep in sync: `package.json` `"version"`, first line of `README.md` and `DEPLOY_RAILWAY.md` (`vN`), and a `## vN` section at the top of `CHANGELOG_AGENT_BEHAVIOR.md`. Enforced by `scripts/check-version.mjs`.
+- **Product version.** Single source of truth: `APP_VERSION` in `src/config.ts`, kept equal to `package.json` `"version"`. Enforced by `scripts/check-version.mjs`. Do not require version stamps in README or deploy markdown. Operator deploy: `docs/DEPLOY.md`.
 
 ## 6. Safety and honesty
 
