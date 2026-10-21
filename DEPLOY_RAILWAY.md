@@ -1,6 +1,6 @@
-# Railway deployment — v55
+# Railway deployment — v56
 
-> **Document:** DEPLOY_RAILWAY · **Product version:** 55 · **Canonical docs:** `docs/` (English set)
+> **Document:** DEPLOY_RAILWAY · **Product version:** 56 · **Canonical docs:** `docs/` (English set)
 
 This file describes how the current application is deployed. Project Mode and PostgreSQL are opt-in. For architecture, environment variables, and runbook detail see `docs/08-Deployment-and-Runbook.md` and `docs/03-API-and-Integration-Contracts.md`. Status: `docs/STATUS.md`.
 
