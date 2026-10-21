@@ -11,7 +11,7 @@
 3. Canonical documentation  `docs/` (`01`–`15` + STATUS).
 4. Before any change: `docs/STATUS.md` → `AGENTS.md` → authorised scope → code.
 5. Every patch deliverable is a ZIP of **changed/new files only** (see `AGENTS.md` §5).
-6. Deploy notes: [`DEPLOY_RAILWAY.md`](../DEPLOY_RAILWAY.md).
+6. Deploy notes: [`docs/DEPLOY.md`](./DEPLOY.md).
 
 ## Do not read everything
 

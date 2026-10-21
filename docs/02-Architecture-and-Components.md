@@ -28,7 +28,7 @@ Node.js 22 / Express server (`server.ts`)
           ▼
 PostgreSQL (Project Mode persistence; migrations 001–014)
 
-External services: Google Gemini, optional Groq-compatible API, optional search provider, Google Drive OAuth/API, GitHub App/API, Railway deployment/runtime.
+External services: Google Gemini, optional Groq-compatible API, optional search provider, Google Drive OAuth/API, GitHub App/API, host deployment/runtime (e.g. Render or any Node host).
 ```
 
 This diagram is a logical architecture inferred from source. It does not assert a particular production topology beyond the configuration documented in the repository.

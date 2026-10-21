@@ -16,7 +16,7 @@ This set establishes one English-language entry point and separates current cont
 | DB and state machines | 04 | engine spec sections and migration/patch narratives |
 | UI/Workspace/files | 06 | `docs/USER_GUIDE.md`, P26/P27–P55 specs/reports, UX1/UI1 reports |
 | Security/privacy | 07 | `docs/SECURITY_POLICY.md`, `docs/THREAT_MODEL.md`, security-related patch specs |
-| Deployment/ops | 08 | `DEPLOY_RAILWAY.md`, `docs/OWNER_OPS.md`, `docs/OPS_ROLLBACK.md`, ADR-09 operational targets |
+| Deployment/ops | 08 | `docs/OWNER_OPS.md`, `docs/OPS_ROLLBACK.md`, ADR-09 operational targets |
 | Tests and release acceptance | 09 and 10 | `docs/TESTING_POLICY.md`, `docs/SPEC_COVERAGE_AUDIT.md`, patch acceptance reports |
 | Historical decisions | 12, plus preserved ADR register | all ADRs and patch reports; retain as decision history until explicit disposition |
 | Roadmap | 13 | `docs/MASTER_IMPLEMENTATION_PLAN.md`, `docs/NEXT.md`, `docs/STATUS.md` after owner approval |

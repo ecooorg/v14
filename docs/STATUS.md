@@ -1,23 +1,22 @@
 # BiForge — STATUS
 
-> The single authoritative progress file. Updated: 2026-10-21 · **v56**  
-> Canonical documentation: English set under `docs/` (this repository).
+> Progress pointer. Product version lives only in `src/config.ts` (`APP_VERSION`) and must match `package.json`.
 
 ## 1. Current status
 
 | Workstream | Status |
 | --- | --- |
-| **Version** | **56** (`APP_VERSION`, `package.json`) |
-| **Simple / Expert** | **Unchanged** by Project App Builder work |
-| **Project UX (P58)** | Two paths: Simple words + Professional; deploy instructions in UI |
-| **Project generation** | `/code/build` App Builder limits; ZIP includes `DEPLOY-MANUAL.md` |
-| **GitHub / Render** | Manual only — no auto push or auto deploy |
+| **Version** | Single source: `src/config.ts` + `package.json` |
+| **Simple / Expert** | Stable |
+| **Project** | Simple words / Professional paths; `/code/build` generation |
+| **Code delivery** | `model_patch` when `CODE_EXECUTOR=model_patch`; source ZIP only; generated code is not executed on the BiForge host |
+| **GitHub write** | Deferred (ADR-06); off by default; enable only via explicit `GITHUB_DIFF_UPLOAD` |
+| **Deploy** | Host-agnostic operator guide: `docs/DEPLOY.md` |
 
-## 2. CI notes
+## 2. Out of repository
 
-- Paths referenced in this file use backticks so `scripts/check-docs.mjs` can verify them.
-- Generated program archives may contain `DEPLOY-MANUAL.md` and `BIFORGE-README.txt`.
+Names such as DEPLOY-MANUAL.md inside generated program ZIPs are archive contents, not paths in this repo.
 
-## 3. Requires explicit owner authorisation
+## 3. Owner authorisation required
 
-GitHub App write; executing generated code on the BiForge host; claiming MANUAL1 without evidence.
+GitHub App write; running generated code on the BiForge server; production secret rotation.
