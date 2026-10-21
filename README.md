@@ -1,6 +1,6 @@
-# BiForge v55
+# BiForge v56
 
-Product version **55**. See `docs/STATUS.md`.
+Product version **56**. See `docs/STATUS.md`.
 
 ## In brief: what BiForge is
 
