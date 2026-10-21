@@ -63,6 +63,7 @@ ADR-09 target: daily backup, 7-day retention, RPO ≤24h and RTO ≤4h. These ar
 ## 8.8 Operational variables
 
 - Model/time: `LLM_CALL_TIMEOUT_MS`, `LLM_TOTAL_DEADLINE_MS`, `MAX_MODEL_CALLS`.
+- Latency policy (P57): `QUALITY_RETRY_MAX_ELAPSED_MS`, `EPISTEMIC_TIMEOUT_MS`, `OLDER_ASSISTANT_MAX_CHARS` (see `server/latencyPolicy.ts`). The log line `conversation_timing` shows where each turn spent its time.
 - Request/file limits: `MAX_BODY_BYTES`, `MAX_UPLOAD_BYTES`, `MAX_ATTACH_TEXT_CHARS`, `EXPERT_ATTACH_TOTAL_CHARS`.
 - Usage limits: `DAILY_CALL_CAP`, `RATE_LIMIT_PER_HOUR`, `PROJECT_RATE_LIMIT_PER_MINUTE`, `PG_POOL_MAX`.
 - Worker: `WORKER_LEASE_MS`, `WORKER_HEARTBEAT_MS`, `WORKER_POLL_MS`; validate heartbeat ≤ half lease.

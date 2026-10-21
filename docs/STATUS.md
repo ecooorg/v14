@@ -1,6 +1,6 @@
 # BiForge — STATUS
 
-> The single authoritative progress file. Updated: 2026-10-19 · **v55**  
+> The single authoritative progress file. Updated: 2026-10-20 · **v55**  
 > Canonical documentation: English set under `docs/` (this repository).
 
 ## 1. Current status
@@ -10,6 +10,7 @@
 | **Version** | **55** (`APP_VERSION`, `package.json`) |
 | **Documentation** | **Canonical English set adopted** (this patch). Retired Russian TZ and historical P*-SPEC/REPORT removed from the repository (owner local archives only). |
 | **Modes** | Simple / Expert / Project implemented in tree |
+| **Latency (P57)** | Quality-retry guard, verifier wait and older-message cut added behind env values; measure with the `conversation_timing` log line before further prompt work |
 | **Code Delivery** | `model_patch`; runtime env-gated; GitHub write deferred |
 | **QA** | Offline suite present; full `npm ci` / `check` / MANUAL1 not fully verified in the documentation audit environment |
 | **Open product gaps** | See `docs/12-Documentation-Migration-and-Open-Decisions.md` and section 3 below |

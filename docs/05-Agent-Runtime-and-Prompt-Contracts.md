@@ -12,6 +12,8 @@ The product uses a common core plus mode-specific instructions. The common layer
 
 This is a heuristic quality retry, not a formal factuality guarantee. It cannot prove that every answer is correct. Current configured request limits include `LLM_CALL_TIMEOUT_MS` (default documented 25,000 ms), `LLM_TOTAL_DEADLINE_MS` (70,000 ms) and `MAX_MODEL_CALLS` (4), but actual effective values depend on server code/environment.
 
+P57 latency policy (`server/latencyPolicy.ts`): the quality retry is skipped when the turn has already taken longer than `QUALITY_RETRY_MAX_ELAPSED_MS` (the first draft is returned, as it already is when the retry fails); the optional verifier waits at most `EPISTEMIC_TIMEOUT_MS`; assistant messages older than the last two messages are cut to `OLDER_ASSISTANT_MAX_CHARS` in the model input (user messages and the durable state are never cut). Setting a value to `0` restores the earlier behaviour for the retry guard and the cutting.
+
 ## 5.3 Project analysis instruction
 
 `server/contextBuilder.ts` defines the analyst instruction. The model is asked to return one JSON object with `summary` and `patch.ops`. Allowed operations are `add`, `update`, `reject` against State sections `facts`, `unknowns`, `hypotheses`, `risks`, `requirements`; it must not touch decisions or system-owned IDs/status/author/source. A fact needs a `ref` (`msg:...` or `artifact:...`) or remains unverified.
